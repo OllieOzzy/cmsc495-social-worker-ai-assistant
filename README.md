@@ -21,7 +21,7 @@ AI-powered documentation assistant for school social workers, developed as a UMG
 │   ├── 📄 safety-and-limitations.md
 │   ├── 📄 user-guide.md
 │   └── 📁 templates/
-│       └── 📋 school_social_work_dap.pdf
+│       └── 📋 School_Social_Work_DAP_Session_Note.pdf
 ├── 📁 src/
 │   └── 📁 documentation_assistant/
 │       ├── 🐍 __init__.py
