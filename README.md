@@ -17,6 +17,7 @@ AI-powered documentation assistant for school social workers, developed as a UMG
 │   ├── 📄 architecture.md
 │   ├── 📄 api-contracts.md
 │   ├── 📄 data-model.md
+│   ├── 📄 local-llm-setup.md
 │   ├── 📄 safety-and-limitations.md
 │   ├── 📄 user-guide.md
 │   └── 📁 templates/
