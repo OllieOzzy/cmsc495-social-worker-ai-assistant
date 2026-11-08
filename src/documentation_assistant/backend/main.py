@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from documentation_assistant.backend.api.health import router as health_router
+from documentation_assistant.backend.api.reports import router as reports_router
 
 
 def create_app() -> FastAPI:
@@ -13,6 +14,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
     )
     application.include_router(health_router)
+    application.include_router(reports_router)
     return application
 
 

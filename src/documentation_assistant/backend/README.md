@@ -1,8 +1,8 @@
 # FastAPI Backend
 
 The backend currently provides an application entry point, a health endpoint,
-and interactive API documentation. Session processing, Ollama integration,
-database storage, and PDF export.
+interactive API documentation, and DAP draft generation through local Ollama.
+Database storage, approval, and PDF export are planned follow-up work.
 
 ## Local Setup
 
@@ -39,6 +39,7 @@ Change `--port` if another application is using port 8000.
 | [GET /health](http://127.0.0.1:8000/health) | Confirms the backend is responding. |
 | [GET /docs](http://127.0.0.1:8000/docs) | Interactive API documentation. |
 | [GET /openapi.json](http://127.0.0.1:8000/openapi.json) | Machine-readable API schema. |
+| `POST /reports/generate` | Generates an unapproved DAP draft from synthetic notes. |
 
 The health endpoint returns:
 
@@ -46,13 +47,28 @@ The health endpoint returns:
 {"status": "ok"}
 ```
 
-This checks API liveness only. Ollama and database readiness checks will be added
-with their integrations.
+This checks API liveness and works independently of Ollama.
+
+## Generate a Draft
+
+Start Ollama and run `ollama pull qwen3:8b` if the model is missing. The backend
+uses Ollama on `127.0.0.1:11434`. To use a different installed model, set
+`$env:OLLAMA_MODEL = "your-model-tag"` before starting the backend.
+
+In `/docs`, open **POST /reports/generate**, select **Try it out**, and submit:
+
+```json
+{"notes": "Synthetic student practiced a breathing exercise and reported feeling calmer afterward."}
+```
+
+The response has a `draft` status and `data`, `assessment`, and `plan` under
+`sections`. Review the content against the source notes. Schema validation checks
+the response structure, while the reviewer checks factual accuracy.
 
 ## Tests
 
 Run the backend integration tests:
 
 ```powershell
-python -m pytest tests/integration/test_health_api.py -v
+python -m pytest tests/integration/test_health_api.py tests/integration/test_reports_api.py -v
 ```

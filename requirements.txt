@@ -1,8 +1,9 @@
 # Backend
 fastapi==0.162.2
+httpx==0.28.1
+pydantic==2.14.3
 uvicorn==0.54.0
 
 # Testing and code quality
-httpx==0.28.1
 pytest==8.4.2
 ruff==0.14.3
