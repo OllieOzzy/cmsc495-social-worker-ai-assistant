@@ -17,6 +17,8 @@ class InvalidModelResponse(Exception):
 
 
 async def generate_dap(notes: str) -> DAPSections:
+    """Generate and validate DAP sections from synthetic session notes."""
+    # Bypass environment proxy settings for the local Ollama request.
     async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
         response = await client.post(
             "http://127.0.0.1:11434/api/chat",
@@ -24,6 +26,7 @@ async def generate_dap(notes: str) -> DAPSections:
                 "model": os.getenv("OLLAMA_MODEL", "qwen3:8b"),
                 "stream": False,
                 "think": False,
+                # Use the same schema for generation and response validation.
                 "format": DAPSections.model_json_schema(),
                 "messages": [
                     {"role": "system", "content": _PROMPT},
@@ -36,6 +39,7 @@ async def generate_dap(notes: str) -> DAPSections:
 
     try:
         result = response.json()
+        # A finished request can still contain a draft cut off at the token limit.
         if result["done"] is not True or result.get("done_reason") == "length":
             raise InvalidModelResponse("The model did not complete the draft.")
         return DAPSections.model_validate_json(result["message"]["content"])
