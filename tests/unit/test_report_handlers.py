@@ -1,3 +1,5 @@
+"""Test report handlers with generation and storage mocked."""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -19,12 +21,14 @@ NOTES = "Synthetic student practiced a breathing exercise."
 
 @pytest.fixture
 def api_request(tmp_path):
+    """Supply the application state that the handlers read from a request."""
     return SimpleNamespace(
         app=SimpleNamespace(state=SimpleNamespace(database_path=tmp_path / "test.db"))
     )
 
 
 def test_generate_report_saves_valid_sections(monkeypatch, api_request):
+    """Verify successful generation sends the notes and sections to storage."""
     sections = DAPSections(
         data=NOTES, assessment="Not documented.", plan="Not documented."
     )
@@ -71,6 +75,8 @@ def test_generate_report_saves_valid_sections(monkeypatch, api_request):
 def test_generate_report_maps_upstream_failure(
     monkeypatch, api_request, failure, status, message
 ):
+    """Verify upstream failures become API errors and skip the save."""
+    # Integer cases represent HTTP response status codes from Ollama.
     if isinstance(failure, int):
         request = httpx.Request("POST", "http://127.0.0.1:11434/api/chat")
         failure = httpx.HTTPStatusError(
@@ -90,6 +96,7 @@ def test_generate_report_maps_upstream_failure(
 
 
 def test_read_report_returns_saved_draft(monkeypatch, api_request):
+    """Verify the handler returns the draft found by its ID."""
     draft = StoredReportDraft(
         report_id=uuid4(),
         notes=NOTES,
@@ -105,6 +112,7 @@ def test_read_report_returns_saved_draft(monkeypatch, api_request):
 
 
 def test_read_report_raises_404_for_missing_draft(monkeypatch, api_request):
+    """Verify a missing draft produces a 404 error."""
     monkeypatch.setattr(reports, "get_draft", Mock(return_value=None))
 
     with pytest.raises(HTTPException) as error:

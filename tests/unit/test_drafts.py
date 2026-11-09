@@ -1,3 +1,5 @@
+"""Test draft storage with a mocked SQLite connection."""
+
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -10,12 +12,14 @@ from documentation_assistant.backend.schemas.reports import DAPSections
 
 @pytest.fixture
 def mock_connect(monkeypatch):
+    """Replace the connection used by the draft functions."""
     connect = MagicMock()
     monkeypatch.setattr(drafts, "connect", connect)
     return connect
 
 
 def test_save_draft_inserts_notes_and_sections(mock_connect):
+    """Verify the insert matches the returned draft."""
     path = Path("unused.db")
     notes = "Synthetic student practiced a breathing exercise."
     sections = DAPSections(
@@ -42,6 +46,7 @@ def test_save_draft_inserts_notes_and_sections(mock_connect):
 
 
 def test_get_draft_maps_row_to_report(mock_connect):
+    """Verify a database row becomes a draft with nested DAP sections."""
     path = Path("unused.db")
     report_id = uuid4()
     notes = "Synthetic student practiced a breathing exercise."
@@ -64,6 +69,7 @@ def test_get_draft_maps_row_to_report(mock_connect):
 
 
 def test_get_draft_returns_none_for_missing_row(mock_connect):
+    """Verify an unmatched lookup returns None."""
     execute = mock_connect.return_value.__enter__.return_value.execute
     execute.return_value.fetchone.return_value = None
 

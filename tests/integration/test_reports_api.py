@@ -1,3 +1,5 @@
+"""Test report endpoints with temporary SQLite storage and mocked Ollama HTTP."""
+
 import json
 from uuid import uuid4
 
@@ -12,16 +14,22 @@ NOTES = "Synthetic student practiced a breathing exercise."
 
 @pytest.fixture
 def app(monkeypatch, tmp_path):
+    """Create a FastAPI app with a database isolated to the current test."""
     monkeypatch.setenv("DAP_DB_PATH", str(tmp_path / "test.db"))
     return create_app()
 
 
 @pytest.fixture
 def mock_ollama(monkeypatch):
+    """Provide a way to replace the Ollama client's HTTP transport."""
     original_client = httpx.AsyncClient
 
+    # Keep the real client so requests and responses follow the usual HTTPX path.
     def configure(handler):
+        """Route outgoing Ollama requests to the supplied handler."""
+
         def make_client(**kwargs):
+            """Create an HTTPX client with the test transport."""
             return original_client(transport=httpx.MockTransport(handler), **kwargs)
 
         monkeypatch.setattr(httpx, "AsyncClient", make_client)
@@ -30,6 +38,7 @@ def mock_ollama(monkeypatch):
 
 
 def test_generation_returns_an_unapproved_draft(app, mock_ollama):
+    """Verify generation saves an unapproved draft with its source notes."""
     sections = {
         "data": NOTES,
         "assessment": "Not documented.",
@@ -37,6 +46,7 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
     }
 
     def reply(request):
+        """Check the Ollama request and return a completed draft."""
         payload = json.loads(request.content)
         assert request.url == "http://127.0.0.1:11434/api/chat"
         assert payload["messages"][1] == {"role": "user", "content": NOTES}
@@ -53,6 +63,7 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
     report_id = draft["report_id"]
     assert draft == {"report_id": report_id, "status": "draft", "sections": sections}
 
+    # A fresh app instance must recover the draft from the same database file.
     with TestClient(create_app()) as client:
         retrieved = client.get(f"/reports/{report_id}")
         assert client.get(f"/reports/{uuid4()}").status_code == 404
@@ -61,7 +72,10 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
 
 
 def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
+    """Verify each report ID retrieves its own notes and generated sections."""
+
     def reply(request):
+        """Build a distinct draft from the notes in each request."""
         notes = json.loads(request.content)["messages"][1]["content"]
         sections = {
             "data": notes,
@@ -98,6 +112,7 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
 
 
 def test_get_report_rejects_malformed_id(app):
+    """Verify FastAPI identifies a malformed report ID as a path error."""
     with TestClient(app) as client:
         response = client.get("/reports/not-a-uuid")
 
@@ -106,7 +121,10 @@ def test_get_report_rejects_malformed_id(app):
 
 
 def test_blank_notes_never_reach_ollama(app, mock_ollama):
+    """Verify request validation rejects blank notes before generation."""
+
     def unexpected_call(request):
+        """Fail if invalid input reaches the Ollama client."""
         pytest.fail("Blank notes should be rejected before calling Ollama")
 
     mock_ollama(unexpected_call)
@@ -115,7 +133,10 @@ def test_blank_notes_never_reach_ollama(app, mock_ollama):
 
 
 def test_invalid_ollama_reply_is_not_saved(app, mock_ollama):
+    """Verify an invalid model reply returns an error without creating a draft."""
+
     def reply(request):
+        """Return a completed reply with the required DAP sections missing."""
         return httpx.Response(200, json={"done": True, "message": {"content": "{}"}})
 
     mock_ollama(reply)

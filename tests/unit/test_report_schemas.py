@@ -1,3 +1,5 @@
+"""Test report request and response validation."""
+
 from uuid import uuid4
 
 import pytest
@@ -11,6 +13,7 @@ from documentation_assistant.backend.schemas.reports import (
 
 
 def test_request_trims_notes_before_checking_maximum_length():
+    """Verify surrounding whitespace does not count toward the notes limit."""
     notes = "x" * 4000
     request = GenerateReportRequest(notes=f" {notes} ")
     assert request.notes == notes
@@ -26,6 +29,7 @@ def test_request_trims_notes_before_checking_maximum_length():
     ],
 )
 def test_request_rejects_invalid_input(payload, error_type):
+    """Verify invalid payloads produce the expected validation error."""
     with pytest.raises(ValidationError) as error:
         GenerateReportRequest.model_validate(payload)
 
@@ -34,6 +38,7 @@ def test_request_rejects_invalid_input(payload, error_type):
 
 @pytest.mark.parametrize("section", ["data", "assessment", "plan"])
 def test_dap_sections_reject_blank_text(section):
+    """Verify each DAP section rejects whitespace-only content."""
     sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
     sections[section] = " "
 
@@ -44,6 +49,7 @@ def test_dap_sections_reject_blank_text(section):
 
 
 def test_generated_report_schema_rejects_approved_status():
+    """Verify generated reports only accept draft status."""
     sections = DAPSections(
         data="Synthetic student practiced a breathing exercise.",
         assessment="Not documented.",

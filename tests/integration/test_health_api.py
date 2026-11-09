@@ -1,9 +1,12 @@
+"""Test the health endpoint and its generated API documentation."""
+
 from fastapi.testclient import TestClient
 
 from documentation_assistant.backend.main import app
 
 
 def test_health_is_available_without_external_services():
+    """Verify the assembled API reports that it is up."""
     with TestClient(app) as client:
         response = client.get("/health")
     assert response.status_code == 200
@@ -11,6 +14,7 @@ def test_health_is_available_without_external_services():
 
 
 def test_openapi_documents_health_response():
+    """Verify OpenAPI lists a successful health response."""
     with TestClient(app) as client:
         response = client.get("/openapi.json")
     assert response.status_code == 200

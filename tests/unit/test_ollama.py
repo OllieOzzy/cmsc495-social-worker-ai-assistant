@@ -1,3 +1,5 @@
+"""Test Ollama reply parsing without a running model server."""
+
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
@@ -16,14 +18,17 @@ SECTIONS = {"data": NOTES, "assessment": "Not documented.", "plan": "Not documen
 
 @pytest.fixture
 def ollama_post(monkeypatch):
+    """Provide a mock POST method for the async HTTP client."""
     client = MagicMock()
     post = AsyncMock()
+    # The client is entered with async with before calling post().
     client.__aenter__.return_value.post = post
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
     return post
 
 
 def test_generate_dap_parses_completed_reply(ollama_post):
+    """Verify a completed reply becomes validated DAP sections."""
     ollama_post.return_value = httpx.Response(
         200,
         request=httpx.Request("POST", "http://127.0.0.1:11434/api/chat"),
@@ -58,6 +63,7 @@ def test_generate_dap_parses_completed_reply(ollama_post):
     ],
 )
 def test_generate_dap_rejects_unusable_replies(ollama_post, reply):
+    """Verify incomplete or malformed replies raise InvalidModelResponse."""
     ollama_post.return_value = httpx.Response(
         200,
         request=httpx.Request("POST", "http://127.0.0.1:11434/api/chat"),
