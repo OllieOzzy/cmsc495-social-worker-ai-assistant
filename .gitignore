@@ -219,6 +219,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Jetbrains
 .idea/
 
 # Local session records
