@@ -49,7 +49,7 @@ jobs:
         run: python -m ruff format --check .
 
   unit:
-    name: Unit tests
+    name: Unit Tests
     needs: formatting
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -62,11 +62,20 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Run unit tests
-        run: python -m pytest tests/unit -v
+      - name: Run unit tests with coverage
+        env:
+          COVERAGE_FILE: .coverage.unit
+        run: python -m coverage run -m pytest tests/unit -v
+      - name: Upload unit coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: .coverage.unit
+          include-hidden-files: true
+          if-no-files-found: error
 
   integration:
-    name: Integration tests
+    name: Integration Tests
     needs: unit
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -79,5 +88,41 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Run integration tests
-        run: python -m pytest tests/integration -v
+      - name: Run integration tests with coverage
+        env:
+          COVERAGE_FILE: .coverage.integration
+        run: python -m coverage run -m pytest tests/integration -v
+      - name: Upload integration coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-integration
+          path: .coverage.integration
+          include-hidden-files: true
+          if-no-files-found: error
+
+  coverage:
+    name: Coverage Report
+    needs: [unit, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Download coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-data
+          merge-multiple: true
+      - name: Combine and publish coverage
+        run: |
+          test -f coverage-data/.coverage.unit
+          test -f coverage-data/.coverage.integration
+          python -m coverage combine coverage-data
+          python -m coverage report --show-missing --format=markdown >> "$GITHUB_STEP_SUMMARY"
