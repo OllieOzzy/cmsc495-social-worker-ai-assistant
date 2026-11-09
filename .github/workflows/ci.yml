@@ -11,7 +11,7 @@ permissions:
 jobs:
   lint:
     name: Linting
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
@@ -34,7 +34,7 @@ jobs:
   formatting:
     name: Formatting
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -51,7 +51,7 @@ jobs:
   unit:
     name: Unit Tests
     needs: formatting
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -67,7 +67,7 @@ jobs:
           COVERAGE_FILE: .coverage.unit
         run: python -m coverage run -m pytest tests/unit -v
       - name: Upload unit coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-unit
           path: .coverage.unit
@@ -77,7 +77,7 @@ jobs:
   integration:
     name: Integration Tests
     needs: unit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -93,7 +93,7 @@ jobs:
           COVERAGE_FILE: .coverage.integration
         run: python -m coverage run -m pytest tests/integration -v
       - name: Upload integration coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-integration
           path: .coverage.integration
@@ -103,7 +103,7 @@ jobs:
   coverage:
     name: Coverage Report
     needs: [unit, integration]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -115,7 +115,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Download coverage data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: coverage-*
           path: coverage-data
