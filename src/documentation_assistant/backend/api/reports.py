@@ -1,4 +1,4 @@
-"""Draft generation endpoints."""
+"""API endpoints for generating and retrieving DAP drafts."""
 
 from uuid import UUID
 
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 async def generate_report(
     payload: GenerateReportRequest, request: Request
 ) -> ReportDraft:
-    """Generate a DAP draft from synthetic session notes for human review."""
+    """Generate and save an unapproved DAP draft from synthetic session notes."""
     try:
         sections = await generate_dap(payload.notes)
     except httpx.TimeoutException as exc:
@@ -36,6 +36,7 @@ async def generate_report(
             503, "Could not reach local Ollama. Check that it is running."
         ) from exc
     except httpx.HTTPStatusError as exc:
+        # An Ollama 404 indicates the configured model is unavailable.
         if exc.response.status_code == 404:
             raise HTTPException(
                 503, "The configured Ollama model is unavailable."
@@ -45,6 +46,7 @@ async def generate_report(
         raise HTTPException(
             502, "Ollama returned an incomplete or invalid DAP draft."
         ) from exc
+    # Run the synchronous SQLite write off the event loop.
     return await run_in_threadpool(
         save_draft, request.app.state.database_path, payload.notes, sections
     )
