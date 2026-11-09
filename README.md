@@ -126,3 +126,9 @@ python scripts/ci_demo.py --notes "Synthetic student attended a session."
 Use `python -m ruff format .` to apply formatting locally.
 After pushing the workflow, open **Actions > CI** to inspect each job's logs.
 A successful run validates this demo, not the future application's functionality.
+
+![Arch_Architecture](./.assets/arch.drawio.svg)
+
+![Backend Architecture](./.assets/backend.drawio.svg)
+
+![Frontend Architecture](./.assets/frontend.drawio.svg)
