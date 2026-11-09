@@ -1,6 +1,7 @@
 """Contracts for generating an unapproved DAP draft."""
 
 from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
@@ -22,5 +23,10 @@ class DAPSections(BaseModel):
 
 
 class ReportDraft(BaseModel):
+    report_id: UUID
     status: Literal["draft"] = "draft"
     sections: DAPSections
+
+
+class StoredReportDraft(ReportDraft):
+    notes: NonBlankText
