@@ -8,9 +8,9 @@ from pathlib import Path
 
 @contextmanager
 def connect(path: Path) -> Iterator[sqlite3.Connection]:
-    """Open a connection and ensure the drafts table exists."""
+    """Yield a SQLite connection with the drafts table ready to use."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    # The connection context manages the transaction. closing() releases the file.
+    # Commit or roll back the transaction before closing the connection.
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("""
             CREATE TABLE IF NOT EXISTS report_drafts (

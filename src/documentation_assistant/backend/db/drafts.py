@@ -11,7 +11,7 @@ from documentation_assistant.backend.schemas.reports import (
 
 
 def save_draft(path: Path, notes: str, sections: DAPSections) -> StoredReportDraft:
-    """Save the source notes and generated sections together."""
+    """Insert a draft with a new ID and return it after the write commits."""
     draft = StoredReportDraft(report_id=uuid4(), notes=notes, sections=sections)
     with connect(path) as connection:
         connection.execute(
@@ -31,7 +31,7 @@ def save_draft(path: Path, notes: str, sections: DAPSections) -> StoredReportDra
 
 
 def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:
-    """Return a saved draft by ID, or None if it does not exist."""
+    """Return the source notes and DAP sections for a saved draft ID."""
     with connect(path) as connection:
         row = connection.execute(
             """
@@ -42,6 +42,7 @@ def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:
         ).fetchone()
     if row is None:
         return None
+    # Rebuild the nested sections from the flat SQLite row.
     notes, data, assessment, plan = row
     return StoredReportDraft(
         report_id=report_id,
