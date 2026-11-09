@@ -2,23 +2,32 @@
 
 The backend currently provides an application entry point, a health endpoint,
 interactive API documentation, and DAP draft generation through local Ollama.
-Database storage, approval, and PDF export are planned follow-up work.
+SQLite stores the source notes and generated drafts.
 
 ## Local Setup
 
 Run all commands in this guide from the **repository root**, which contains
 `requirements.txt` and `pyproject.toml`.
 
-For a first-time setup on Windows, create a Python 3.12 virtual environment:
+Use Python 3.12. Create and activate a virtual environment for your platform.
+
+**Windows (PowerShell)**
 
 ```powershell
 py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-Activate the environment and install dependencies:
+**macOS and Linux (bash or zsh)**
 
-```powershell
-.\.venv\Scripts\Activate.ps1
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+```
+
+With the environment active, install the dependencies:
+
+```bash
 python -m pip install -r requirements.txt
 ```
 
@@ -39,7 +48,8 @@ Change `--port` if another application is using port 8000.
 | [GET /health](http://127.0.0.1:8000/health) | Confirms the backend is responding. |
 | [GET /docs](http://127.0.0.1:8000/docs) | Interactive API documentation. |
 | [GET /openapi.json](http://127.0.0.1:8000/openapi.json) | Machine-readable API schema. |
-| `POST /reports/generate` | Generates an unapproved DAP draft from synthetic notes. |
+| `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
+| `GET /reports/{report_id}` | Retrieves a saved draft and its source notes. |
 
 The health endpoint returns:
 
@@ -53,7 +63,10 @@ This checks API liveness and works independently of Ollama.
 
 Start Ollama and run `ollama pull qwen3:8b` if the model is missing. The backend
 uses Ollama on `127.0.0.1:11434`. To use a different installed model, set
-`$env:OLLAMA_MODEL = "your-model-tag"` before starting the backend.
+`OLLAMA_MODEL` before starting the backend.
+
+- PowerShell: `$env:OLLAMA_MODEL = "your-model-tag"`
+- bash or zsh: `export OLLAMA_MODEL="your-model-tag"`
 
 In `/docs`, open **POST /reports/generate**, select **Try it out**, and submit:
 
@@ -61,14 +74,21 @@ In `/docs`, open **POST /reports/generate**, select **Try it out**, and submit:
 {"notes": "Synthetic student practiced a breathing exercise and reported feeling calmer afterward."}
 ```
 
-The response has a `draft` status and `data`, `assessment`, and `plan` under
-`sections`. Review the content against the source notes. Schema validation checks
-the response structure, while the reviewer checks factual accuracy.
+The response has a `report_id`, a `draft` status, and `data`, `assessment`, and
+`plan` under `sections`. Use the ID in **GET /reports/{report_id}** to retrieve
+the draft alongside its source notes, including after restarting the backend.
+Retrieval works with Ollama stopped. Review the content against the source
+notes. Schema validation checks the response structure, while the reviewer
+checks factual accuracy.
+
+SQLite creates `data/dap.db` on first use of draft storage when the
+backend starts from the repository root. To use another location, set
+`DAP_DB_PATH` before starting the backend. Use synthetic notes only.
 
 ## Tests
 
-Run the backend integration tests:
+Run the full test suite, including unit and integration tests:
 
 ```powershell
-python -m pytest tests/integration/test_health_api.py tests/integration/test_reports_api.py -v
+python -m pytest
 ```
