@@ -1,16 +1,22 @@
-"""Save and retrieve DAP drafts and their source notes."""
+"""Store DAP reports, source notes, and review decisions."""
 
+import sqlite3
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from documentation_assistant.backend.db.connection import connect
 from documentation_assistant.backend.schemas.reports import (
     DAPSections,
+    EditReportRequest,
     ReportFilters,
     ReportMetadata,
     ReportSummary,
     StoredReportDraft,
 )
+
+
+class ReviewConflict(Exception):
+    """The saved report is approved or its revision has changed."""
 
 
 def save_draft(
@@ -65,6 +71,8 @@ def list_drafts(
         ("casefold(grade) = ?", _casefold(values["grade"])),
         ("date_of_service >= ?", values["date_from"]),
         ("date_of_service <= ?", values["date_to"]),
+        ("status = ?", values["status"]),
+        ("instr(casefold(approved_by), ?) > 0", _casefold(values["approved_by"])),
         (
             "instr(casefold(social_worker_name), ?) > 0",
             _casefold(values["social_worker_name"]),
@@ -81,8 +89,8 @@ def list_drafts(
         connection.create_function("casefold", 1, _casefold)
         rows = connection.execute(
             f"""
-            SELECT report_id, created_at, student_name, student_id, school, grade,
-                   date_of_service, social_worker_name
+            SELECT report_id, created_at, status, approved_by, student_name, student_id,
+                   school, grade, date_of_service, social_worker_name
             FROM report_drafts {where} ORDER BY rowid DESC
             """,
             parameters,
@@ -92,33 +100,115 @@ def list_drafts(
             {
                 "report_id": report_id,
                 "created_at": created_at,
+                "status": status,
+                "approved_by": approved_by,
                 "metadata": _read_metadata(details),
             }
         )
-        for report_id, created_at, *details in rows
+        for report_id, created_at, status, approved_by, *details in rows
     ]
 
 
 def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:
     """Return the source notes and DAP sections for a saved draft ID."""
     with connect(path) as connection:
-        row = connection.execute(
-            """
-            SELECT notes, data, assessment, plan, student_name, student_id, school,
-                   grade, date_of_service, social_worker_name
-            FROM report_drafts WHERE report_id = ?
+        return _get_report(connection, report_id)
+
+
+def edit_draft(
+    path: Path, report_id: UUID, edit: EditReportRequest
+) -> StoredReportDraft | None:
+    """Save edited sections and report details on the current draft revision."""
+    changes = edit.sections.model_dump() if edit.sections is not None else {}
+    if edit.metadata is not None:
+        changes.update(edit.metadata.model_dump(mode="json", exclude_unset=True))
+
+    # Column names come from the schemas. Bind user-entered values separately.
+    return _update_review(
+        path,
+        report_id,
+        edit.revision,
+        ", ".join(f"{column} = ?" for column in changes),
+        tuple(changes.values()),
+    )
+
+
+def approve_draft(
+    path: Path, report_id: UUID, revision: int, approved_by: str
+) -> StoredReportDraft | None:
+    """Approve the exact revision reviewed by the caller."""
+    return _update_review(
+        path,
+        report_id,
+        revision,
+        "status = 'approved', approved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+        "approved_by = ?",
+        (approved_by,),
+    )
+
+
+def _update_review(
+    path: Path,
+    report_id: UUID,
+    revision: int,
+    assignments: str,
+    values: tuple[str | None, ...] = (),
+) -> StoredReportDraft | None:
+    """Apply a fixed SQL update and read its result in the same transaction."""
+    with connect(path) as connection:
+        # The conditional write prevents stale edits or approvals from winning a race.
+        updated = connection.execute(
+            f"""
+            UPDATE report_drafts SET {assignments}, revision = revision + 1
+            WHERE report_id = ? AND revision = ? AND status = 'draft'
             """,
-            (str(report_id),),
-        ).fetchone()
+            (*values, str(report_id), revision),
+        )
+        report = _get_report(connection, report_id)
+        if updated.rowcount == 0 and report is not None:
+            if report.status == "approved":
+                raise ReviewConflict("Approved reports are read-only.")
+            raise ReviewConflict("Report changed. Reload the current revision.")
+        return report
+
+
+def _get_report(
+    connection: sqlite3.Connection, report_id: UUID
+) -> StoredReportDraft | None:
+    """Read a report using the caller's connection and transaction."""
+    row = connection.execute(
+        """
+        SELECT notes, data, assessment, plan, status, revision, approved_at, approved_by,
+               student_name, student_id, school, grade, date_of_service, social_worker_name
+        FROM report_drafts WHERE report_id = ?
+        """,
+        (str(report_id),),
+    ).fetchone()
     if row is None:
         return None
     # Rebuild the nested sections from the flat SQLite row.
-    notes, data, assessment, plan, *details = row
-    return StoredReportDraft(
-        report_id=report_id,
-        notes=notes,
-        sections=DAPSections(data=data, assessment=assessment, plan=plan),
-        metadata=_read_metadata(details),
+    (
+        notes,
+        data,
+        assessment,
+        plan,
+        status,
+        revision,
+        approved_at,
+        approved_by,
+        *details,
+    ) = row
+    return StoredReportDraft.model_validate(
+        {
+            "report_id": report_id,
+            "notes": notes,
+            "sections": DAPSections(data=data, assessment=assessment, plan=plan),
+            "metadata": _read_metadata(details),
+            "status": status,
+            "revision": revision,
+            "approved_at": approved_at,
+            "approved_by": approved_by,
+        }
     )
 
 

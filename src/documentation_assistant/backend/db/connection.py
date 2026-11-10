@@ -5,15 +5,19 @@ from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path
 
-_OPTIONAL_COLUMNS = (
-    "created_at",
-    "student_name",
-    "student_id",
-    "school",
-    "grade",
-    "date_of_service",
-    "social_worker_name",
-)
+_ADDED_COLUMNS = {
+    "created_at": "TEXT",
+    "student_name": "TEXT",
+    "student_id": "TEXT",
+    "school": "TEXT",
+    "grade": "TEXT",
+    "date_of_service": "TEXT",
+    "social_worker_name": "TEXT",
+    "status": "TEXT NOT NULL DEFAULT 'draft'",
+    "revision": "INTEGER NOT NULL DEFAULT 1",
+    "approved_at": "TEXT",
+    "approved_by": "TEXT",
+}
 
 
 @contextmanager
@@ -35,24 +39,30 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
                 school TEXT,
                 grade TEXT,
                 date_of_service TEXT,
-                social_worker_name TEXT
+                social_worker_name TEXT,
+                status TEXT NOT NULL DEFAULT 'draft',
+                revision INTEGER NOT NULL DEFAULT 1,
+                approved_at TEXT,
+                approved_by TEXT
             )
         """)
-        _ensure_optional_columns(connection)
+        _ensure_added_columns(connection)
         yield connection
 
 
-def _ensure_optional_columns(connection: sqlite3.Connection) -> None:
-    """Add nullable columns to databases created with an older schema."""
+def _ensure_added_columns(connection: sqlite3.Connection) -> None:
+    """Upgrade existing databases while preserving saved reports."""
     column_query = "SELECT name FROM pragma_table_info('report_drafts')"
     columns = {name for (name,) in connection.execute(column_query)}
-    if all(column in columns for column in _OPTIONAL_COLUMNS):
+    if _ADDED_COLUMNS.keys() <= columns:
         return
 
     # Recheck under the write lock in case another request migrated the database.
     connection.execute("BEGIN IMMEDIATE")
     columns = {name for (name,) in connection.execute(column_query)}
-    for column in _OPTIONAL_COLUMNS:
+    for column, definition in _ADDED_COLUMNS.items():
         if column not in columns:
-            # Leave old save times and unrecorded report details at NULL.
-            connection.execute(f"ALTER TABLE report_drafts ADD COLUMN {column} TEXT")
+            # Older reports start as drafts, with unknown timestamps left at NULL.
+            connection.execute(
+                f"ALTER TABLE report_drafts ADD COLUMN {column} {definition}"
+            )
