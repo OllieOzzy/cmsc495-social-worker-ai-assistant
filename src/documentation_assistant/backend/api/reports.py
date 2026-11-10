@@ -1,4 +1,4 @@
-"""API endpoints for generating, listing, and retrieving DAP drafts."""
+"""API endpoints for generating, finding, and reviewing DAP reports."""
 
 from typing import Annotated
 from uuid import UUID
@@ -7,12 +7,21 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
-from documentation_assistant.backend.db import get_draft, list_drafts, save_draft
+from documentation_assistant.backend.db import (
+    ReviewConflict,
+    approve_draft,
+    edit_draft,
+    get_draft,
+    list_drafts,
+    save_draft,
+)
 from documentation_assistant.backend.llm.ollama import (
     InvalidModelResponse,
     generate_dap,
 )
 from documentation_assistant.backend.schemas.reports import (
+    ApproveReportRequest,
+    EditReportRequest,
     GenerateReportRequest,
     ReportDraft,
     ReportFilters,
@@ -50,20 +59,21 @@ async def generate_report(
             502, "Ollama returned an incomplete or invalid DAP draft."
         ) from exc
     # Run the synchronous SQLite write off the event loop.
-    return await run_in_threadpool(
+    draft = await run_in_threadpool(
         save_draft,
         request.app.state.database_path,
         payload.notes,
         sections,
         payload.metadata,
     )
+    return ReportDraft(report_id=draft.report_id, sections=draft.sections)
 
 
 @router.get("", response_model=list[ReportSummary])
 def list_reports(
     request: Request, filters: Annotated[ReportFilters, Query()]
 ) -> list[ReportSummary]:
-    """Return saved draft summaries matching the supplied filters, newest first."""
+    """Return saved report summaries matching the filters, newest first."""
     return list_drafts(request.app.state.database_path, filters)
 
 
@@ -74,3 +84,36 @@ def read_report(report_id: UUID, request: Request) -> StoredReportDraft:
     if draft is None:
         raise HTTPException(404, "Report draft not found.")
     return draft
+
+
+@router.patch("/{report_id}", response_model=StoredReportDraft)
+def edit_report(
+    report_id: UUID, payload: EditReportRequest, request: Request
+) -> StoredReportDraft:
+    """Save corrected sections or report details while keeping draft status."""
+    try:
+        report = edit_draft(request.app.state.database_path, report_id, payload)
+    except ReviewConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if report is None:
+        raise HTTPException(404, "Report draft not found.")
+    return report
+
+
+@router.post("/{report_id}/approve", response_model=StoredReportDraft)
+def approve_report(
+    report_id: UUID, payload: ApproveReportRequest, request: Request
+) -> StoredReportDraft:
+    """Explicitly approve the reviewed revision and make it read-only."""
+    try:
+        report = approve_draft(
+            request.app.state.database_path,
+            report_id,
+            payload.revision,
+            payload.approved_by,
+        )
+    except ReviewConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if report is None:
+        raise HTTPException(404, "Report draft not found.")
+    return report
