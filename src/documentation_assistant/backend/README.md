@@ -49,6 +49,7 @@ Change `--port` if another application is using port 8000.
 | [GET /docs](http://127.0.0.1:8000/docs) | Interactive API documentation. |
 | [GET /openapi.json](http://127.0.0.1:8000/openapi.json) | Machine-readable API schema. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
+| `GET /reports` | Lists saved draft summaries, newest saved first. |
 | `GET /reports/{report_id}` | Retrieves a saved draft and its source notes. |
 
 The health endpoint returns:
@@ -84,6 +85,10 @@ checks factual accuracy.
 SQLite creates `data/dap.db` on first use of draft storage when the
 backend starts from the repository root. To use another location, set
 `DAP_DB_PATH` before starting the backend. Use synthetic notes only.
+
+Use `GET /reports` to find a saved draft without already knowing its ID. Each
+summary contains `report_id`, `status`, and a UTC `created_at` timestamp.
+Drafts saved before timestamps were introduced have `created_at: null`.
 
 ## Tests
 
