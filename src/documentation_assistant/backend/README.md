@@ -49,8 +49,10 @@ Change `--port` if another application is using port 8000.
 | [GET /docs](http://127.0.0.1:8000/docs) | Interactive API documentation. |
 | [GET /openapi.json](http://127.0.0.1:8000/openapi.json) | Machine-readable API schema. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
-| `GET /reports` | Lists and filters saved draft summaries, newest saved first. |
-| `GET /reports/{report_id}` | Retrieves a saved draft and its source notes. |
+| `GET /reports` | Lists and filters saved report summaries, newest saved first. |
+| `GET /reports/{report_id}` | Retrieves a saved report, its source notes, and its review state. |
+| `PATCH /reports/{report_id}` | Saves corrected DAP sections or report details on a draft. |
+| `POST /reports/{report_id}/approve` | Approves the saved revision and makes it read-only. |
 
 The health endpoint returns:
 
@@ -99,6 +101,28 @@ Filter the list with any combination of `student_name` and
 `student_id`, `school`, `grade`, `date_from`, and `date_to`. The date range
 is inclusive and uses date of service. Drafts with missing values remain in
 the unfiltered list.
+
+Use `status=draft` or `status=approved` to show one status. Omit `status`
+to show both. Use `approved_by` to search the recorded approver's name by
+partial, case-insensitive match.
+
+## Review and Approve
+
+Open the report by ID to get its current `revision`. To save changes, send
+that revision and DAP `sections`, `metadata`, or both to `PATCH /reports/{report_id}`.
+Include all three DAP fields when replacing `sections`. Within `metadata`,
+include only the fields to change. Use `null` to clear an optional detail.
+The response contains the new revision and the source notes. The report stays
+in draft status. When review is complete, send the revision you reviewed
+and the reviewer's name to `POST /reports/{report_id}/approve`.
+
+```json
+{"revision": 2, "approved_by": "Taylor Example"}
+```
+
+Approval records the supplied name and a UTC `approved_at` timestamp. An approved report or a
+stale revision returns `409` on a review action. Reload the report before
+trying again. Editing and approval work with Ollama stopped.
 
 ## Tests
 

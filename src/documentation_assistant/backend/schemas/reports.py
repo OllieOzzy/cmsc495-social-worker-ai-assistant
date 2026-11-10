@@ -4,11 +4,13 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 # Trim surrounding whitespace before checking whether the text is empty.
 NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 MetadataText = Annotated[NonBlankText, StringConstraints(max_length=200)]
+ReportStatus = Literal["draft", "approved"]
+ReportRevision = Annotated[int, Field(strict=True, ge=1, le=2**63 - 1)]
 
 
 class ReportMetadata(BaseModel):
@@ -36,6 +38,9 @@ class ReportFilters(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
     social_worker_name: MetadataText | None = None
+
+    status: ReportStatus | None = None
+    approved_by: MetadataText | None = None
 
     # Compare the two dates after Pydantic has parsed both filter fields.
     @model_validator(mode="after")
@@ -65,25 +70,67 @@ class DAPSections(BaseModel):
     plan: NonBlankText
 
 
-class ReportDraft(BaseModel):
-    """Return the draft ID and generated sections after saving the draft."""
+class ReportContent(BaseModel):
+    """Identify a report and carry its DAP sections."""
 
     report_id: UUID
-    status: Literal["draft"] = "draft"
     sections: DAPSections
 
 
-class StoredReportDraft(ReportDraft):
-    """Include the submitted notes for side-by-side review of a saved draft."""
+class ReportDraft(ReportContent):
+    """Return a newly generated draft."""
+
+    status: Literal["draft"] = "draft"
+
+
+class StoredReportDraft(ReportContent):
+    """Return the saved report, source notes, and review state."""
 
     notes: NonBlankText
     metadata: ReportMetadata | None = None
+    status: ReportStatus = "draft"
+    revision: ReportRevision = 1
+    approved_at: datetime | None = None
+    approved_by: MetadataText | None = None
+
+
+class ReportRevisionRequest(BaseModel):
+    """Identify the saved revision for a review action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    revision: ReportRevision
+
+
+class ApproveReportRequest(ReportRevisionRequest):
+    """Record who explicitly approves the saved revision."""
+
+    approved_by: MetadataText
+
+
+class EditReportRequest(ReportRevisionRequest):
+    """Update DAP sections, report metadata, or both on a saved draft."""
+
+    sections: DAPSections | None = None
+    metadata: ReportMetadata | None = None
+
+    @model_validator(mode="after")
+    def validate_changes(self) -> "EditReportRequest":
+        """Require sections or at least one explicitly supplied metadata field."""
+        if self.sections is None and (
+            self.metadata is None or not self.metadata.model_fields_set
+        ):
+            raise ValueError(
+                "Provide sections or at least one metadata field to update"
+            )
+        return self
 
 
 class ReportSummary(BaseModel):
-    """Identify a saved draft and include its timestamp when available."""
+    """Identify a saved report and include its current review status."""
 
     report_id: UUID
-    status: Literal["draft"] = "draft"
+    status: ReportStatus = "draft"
     created_at: datetime | None
     metadata: ReportMetadata | None = None
+    approved_by: MetadataText | None = None

@@ -14,7 +14,7 @@ def test_connect_exits_transaction_and_closes_connection(monkeypatch, tmp_path, 
     sqlite_connect = MagicMock()
     db = sqlite_connect.return_value
     db.execute.return_value.__iter__.return_value = [
-        (column,) for column in connection._OPTIONAL_COLUMNS
+        (column,) for column in connection._ADDED_COLUMNS
     ]
     monkeypatch.setattr(connection.sqlite3, "connect", sqlite_connect)
 
