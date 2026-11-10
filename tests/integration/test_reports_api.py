@@ -71,7 +71,7 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
         retrieved = client.get(f"/reports/{report_id}")
         assert client.get(f"/reports/{uuid4()}").status_code == 404
     assert retrieved.status_code == 200
-    assert retrieved.json() == {**draft, "notes": NOTES}
+    assert retrieved.json() == {**draft, "notes": NOTES, "metadata": None}
 
 
 def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
@@ -106,7 +106,7 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
             reversed(notes_by_report)
         )
         for summary in summaries:
-            assert set(summary) == {"report_id", "status", "created_at"}
+            assert set(summary) == {"report_id", "status", "created_at", "metadata"}
             assert summary["status"] == "draft"
             assert datetime.fromisoformat(summary["created_at"]).utcoffset() is not None
 
@@ -117,6 +117,7 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
                 "report_id": report_id,
                 "status": "draft",
                 "notes": notes,
+                "metadata": None,
                 "sections": {
                     "data": notes,
                     "assessment": "Not documented.",
@@ -147,9 +148,69 @@ def test_list_reports_includes_drafts_saved_before_timestamps(app):
         listing = client.get("/reports")
         assert listing.status_code == 200
         assert listing.json() == [
-            {"report_id": report_id, "status": "draft", "created_at": None}
+            {
+                "report_id": report_id,
+                "status": "draft",
+                "created_at": None,
+                "metadata": None,
+            }
         ]
         assert client.get(f"/reports/{report_id}").json()["notes"] == NOTES
+        assert client.get("/reports", params={"grade": "8"}).json() == []
+
+
+def test_report_filters_match_saved_metadata(app, mock_ollama):
+    """Verify metadata round-trips and filters match singly and together."""
+    sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
+
+    def reply(request):
+        assert json.loads(request.content)["messages"][1]["content"] == NOTES
+        return httpx.Response(
+            200, json={"done": True, "message": {"content": json.dumps(sections)}}
+        )
+
+    mock_ollama(reply)
+    first = {
+        "student_name": "Éva Synthetic",
+        "student_id": "SYN-001",
+        "school": "Example Middle",
+        "grade": "8",
+        "date_of_service": "2026-10-01",
+        "social_worker_name": "Jordan Example",
+    }
+    second = {
+        **first,
+        "student_name": "Alex Synthetic",
+        "student_id": "SYN-002",
+        "date_of_service": "2026-11-01",
+        "social_worker_name": "Taylor Example",
+    }
+    with TestClient(app) as client:
+        first_id, second_id = [
+            client.post(
+                "/reports/generate", json={"notes": NOTES, "metadata": details}
+            ).json()["report_id"]
+            for details in (first, second)
+        ]
+        assert client.get(f"/reports/{first_id}").json()["metadata"] == first
+        for params, expected in (
+            ({"student_name": "éVA"}, [first_id]),
+            ({"social_worker_name": "jORdan", "school": "Example Middle"}, [first_id]),
+            ({"student_id": "SYN-002"}, [second_id]),
+            ({"school": "example middle", "grade": "8"}, [second_id, first_id]),
+            (
+                {"grade": "8", "date_from": "2026-10-01", "date_to": "2026-10-01"},
+                [first_id],
+            ),
+            ({"student_name": "%"}, []),
+        ):
+            response = client.get("/reports", params=params)
+            assert response.status_code == 200
+            assert [row["report_id"] for row in response.json()] == expected
+        invalid = client.get(
+            "/reports", params={"date_from": "2026-11-01", "date_to": "2026-10-01"}
+        )
+        assert invalid.status_code == 422
 
 
 def test_list_reports_returns_empty_list_for_new_database(app):
