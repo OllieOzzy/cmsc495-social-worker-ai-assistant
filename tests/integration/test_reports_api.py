@@ -71,7 +71,14 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
         retrieved = client.get(f"/reports/{report_id}")
         assert client.get(f"/reports/{uuid4()}").status_code == 404
     assert retrieved.status_code == 200
-    assert retrieved.json() == {**draft, "notes": NOTES, "metadata": None}
+    assert retrieved.json() == {
+        **draft,
+        "notes": NOTES,
+        "metadata": None,
+        "revision": 1,
+        "approved_at": None,
+        "approved_by": None,
+    }
 
 
 def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
@@ -106,7 +113,14 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
             reversed(notes_by_report)
         )
         for summary in summaries:
-            assert set(summary) == {"report_id", "status", "created_at", "metadata"}
+            assert set(summary) == {
+                "report_id",
+                "status",
+                "created_at",
+                "metadata",
+                "approved_by",
+            }
+            assert summary["approved_by"] is None
             assert summary["status"] == "draft"
             assert datetime.fromisoformat(summary["created_at"]).utcoffset() is not None
 
@@ -118,6 +132,9 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
                 "status": "draft",
                 "notes": notes,
                 "metadata": None,
+                "revision": 1,
+                "approved_at": None,
+                "approved_by": None,
                 "sections": {
                     "data": notes,
                     "assessment": "Not documented.",
@@ -153,10 +170,157 @@ def test_list_reports_includes_drafts_saved_before_timestamps(app):
                 "status": "draft",
                 "created_at": None,
                 "metadata": None,
+                "approved_by": None,
             }
         ]
-        assert client.get(f"/reports/{report_id}").json()["notes"] == NOTES
+        saved = client.get(f"/reports/{report_id}").json()
+        assert (saved["notes"], saved["revision"], saved["approved_at"]) == (
+            NOTES,
+            1,
+            None,
+        )
         assert client.get("/reports", params={"grade": "8"}).json() == []
+
+
+def test_review_saves_corrections_and_only_approves_the_current_revision(
+    app, mock_ollama
+):
+    """Verify editing, stale approval, and persisted read-only approval."""
+    generated = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
+    approver = {"approved_by": "Taylor Example"}
+
+    def reply(request):
+        return httpx.Response(
+            200, json={"done": True, "message": {"content": json.dumps(generated)}}
+        )
+
+    mock_ollama(reply)
+    with TestClient(app) as client:
+        created = client.post(
+            "/reports/generate",
+            json={
+                "notes": NOTES,
+                "metadata": {"student_id": "SYN-404", "school": "Example Middle"},
+            },
+        )
+        assert created.status_code == 200
+        report_url = f"/reports/{created.json()['report_id']}"
+        current = client.get(report_url).json()
+        edited = {**generated, "data": NOTES}
+        edit = client.patch(
+            report_url, json={"revision": current["revision"], "sections": edited}
+        )
+        assert edit.status_code == 200
+        assert edit.json() == {**current, "sections": edited, "revision": 2}
+        assert (
+            client.patch(
+                report_url, json={"revision": 1, "sections": generated}
+            ).status_code
+            == 409
+        )
+        assert (
+            client.post(
+                f"{report_url}/approve", json={"revision": 1, **approver}
+            ).status_code
+            == 409
+        )
+
+    with TestClient(create_app()) as client:
+        assert client.get(report_url).json() == edit.json()
+        assert (
+            client.patch(report_url, json={"revision": 2, "metadata": {}}).status_code
+            == 422
+        )
+        corrected = client.patch(
+            report_url,
+            json={
+                "revision": 2,
+                "metadata": {
+                    "student_id": "SYN-044",
+                    "grade": "8",
+                    "date_of_service": "2026-11-10",
+                    "school": None,
+                },
+            },
+        )
+        assert corrected.status_code == 200
+        assert corrected.json() == {
+            **edit.json(),
+            "revision": 3,
+            "metadata": {
+                **edit.json()["metadata"],
+                "student_id": "SYN-044",
+                "grade": "8",
+                "date_of_service": "2026-11-10",
+                "school": None,
+            },
+        }
+        assert client.get("/reports", params={"student_id": "SYN-404"}).json() == []
+        assert (
+            client.get("/reports", params={"student_id": "SYN-044"}).json()[0][
+                "report_id"
+            ]
+            == created.json()["report_id"]
+        )
+        assert (
+            client.post(
+                f"{report_url}/approve", json={"revision": 2, **approver}
+            ).status_code
+            == 409
+        )
+        for invalid_approval in ({"revision": 3}, {"revision": 3, "approved_by": " "}):
+            assert (
+                client.post(f"{report_url}/approve", json=invalid_approval).status_code
+                == 422
+            )
+        approved = client.post(
+            f"{report_url}/approve", json={"revision": 3, **approver}
+        )
+        assert approved.status_code == 200
+        approved_at = approved.json()["approved_at"]
+        assert datetime.fromisoformat(approved_at).utcoffset() is not None
+        assert approved.json() == {
+            **corrected.json(),
+            "status": "approved",
+            "revision": 4,
+            "approved_at": approved_at,
+            **approver,
+        }
+        assert (
+            client.patch(
+                report_url, json={"revision": 4, "metadata": {"student_id": "SYN-404"}}
+            ).status_code
+            == 409
+        )
+        assert (
+            client.post(
+                f"{report_url}/approve", json={"revision": 4, **approver}
+            ).status_code
+            == 409
+        )
+        other = client.post("/reports/generate", json={"notes": NOTES})
+        assert other.status_code == 200
+        assert [item["status"] for item in client.get("/reports").json()] == [
+            "draft",
+            "approved",
+        ]
+        drafts = client.get("/reports", params={"status": "draft"}).json()
+        assert [item["report_id"] for item in drafts] == [other.json()["report_id"]]
+        approved_reports = client.get(
+            "/reports", params={"status": "approved", "approved_by": "tAYlOR"}
+        ).json()
+        assert [item["report_id"] for item in approved_reports] == [
+            created.json()["report_id"]
+        ]
+        assert approved_reports[0]["approved_by"] == approver["approved_by"]
+        assert (
+            client.get("/reports", params={"approved_by": "Nobody Example"}).json()
+            == []
+        )
+        assert client.get("/reports", params={"status": "all"}).status_code == 422
+
+    with TestClient(create_app()) as client:
+        assert client.get(report_url).json() == approved.json()
 
 
 def test_report_filters_match_saved_metadata(app, mock_ollama):
