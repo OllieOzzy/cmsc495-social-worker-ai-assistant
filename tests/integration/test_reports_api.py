@@ -1,6 +1,9 @@
 """Test report endpoints with temporary SQLite storage and mocked Ollama HTTP."""
 
 import json
+import sqlite3
+from contextlib import closing
+from datetime import datetime
 from uuid import uuid4
 
 import httpx
@@ -96,6 +99,17 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
 
     assert len(notes_by_report) == 2
     with TestClient(create_app()) as client:
+        listing = client.get("/reports")
+        assert listing.status_code == 200
+        summaries = listing.json()
+        assert [summary["report_id"] for summary in summaries] == list(
+            reversed(notes_by_report)
+        )
+        for summary in summaries:
+            assert set(summary) == {"report_id", "status", "created_at"}
+            assert summary["status"] == "draft"
+            assert datetime.fromisoformat(summary["created_at"]).utcoffset() is not None
+
         for report_id, notes in notes_by_report.items():
             response = client.get(f"/reports/{report_id}")
             assert response.status_code == 200
@@ -109,6 +123,41 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
                     "plan": "Not documented.",
                 },
             }
+
+
+def test_list_reports_includes_drafts_saved_before_timestamps(app):
+    """Verify the old SQLite schema upgrades without losing saved notes."""
+    report_id = str(uuid4())
+    with closing(sqlite3.connect(app.state.database_path)) as db, db:
+        db.execute("""
+            CREATE TABLE report_drafts (
+                report_id TEXT PRIMARY KEY NOT NULL,
+                notes TEXT NOT NULL,
+                data TEXT NOT NULL,
+                assessment TEXT NOT NULL,
+                plan TEXT NOT NULL
+            )
+        """)
+        db.execute(
+            "INSERT INTO report_drafts VALUES (?, ?, ?, ?, ?)",
+            (report_id, NOTES, NOTES, "Not documented.", "Not documented."),
+        )
+
+    with TestClient(app) as client:
+        listing = client.get("/reports")
+        assert listing.status_code == 200
+        assert listing.json() == [
+            {"report_id": report_id, "status": "draft", "created_at": None}
+        ]
+        assert client.get(f"/reports/{report_id}").json()["notes"] == NOTES
+
+
+def test_list_reports_returns_empty_list_for_new_database(app):
+    """Verify the history endpoint returns an empty list before any saves."""
+    with TestClient(app) as client:
+        response = client.get("/reports")
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 def test_get_report_rejects_malformed_id(app):

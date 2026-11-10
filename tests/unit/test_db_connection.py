@@ -29,6 +29,7 @@ def test_connect_exits_transaction_and_closes_connection(monkeypatch, tmp_path, 
 
     assert path.parent.is_dir()
     sqlite_connect.assert_called_once_with(path)
-    db.execute.assert_called_once()
-    assert "CREATE TABLE IF NOT EXISTS report_drafts" in db.execute.call_args.args[0]
+    create, inspect = db.execute.call_args_list
+    assert "CREATE TABLE IF NOT EXISTS report_drafts" in create.args[0]
+    assert "pragma_table_info" in inspect.args[0]
     db.close.assert_called_once()
