@@ -1,5 +1,6 @@
 """Validate requests and responses for generating and retrieving DAP drafts."""
 
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -39,3 +40,11 @@ class StoredReportDraft(ReportDraft):
     """Include the submitted notes for side-by-side review of a saved draft."""
 
     notes: NonBlankText
+
+
+class ReportSummary(BaseModel):
+    """Identify a saved draft and include its timestamp when available."""
+
+    report_id: UUID
+    status: Literal["draft"] = "draft"
+    created_at: datetime | None

@@ -1,5 +1,6 @@
 """Test draft storage with a mocked SQLite connection."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -43,6 +44,24 @@ def test_save_draft_inserts_notes_and_sections(mock_connect):
         sections.assessment,
         sections.plan,
     )
+
+
+def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
+    """Verify draft summaries include UTC timestamps when available."""
+    first_id, second_id = uuid4(), uuid4()
+    execute = mock_connect.return_value.__enter__.return_value.execute
+    execute.return_value.fetchall.return_value = [
+        (str(first_id), "2026-11-09T15:30:00Z"),
+        (str(second_id), None),
+    ]
+
+    first, second = drafts.list_drafts(Path("unused.db"))
+
+    assert (first.report_id, first.created_at) == (
+        first_id,
+        datetime(2026, 11, 9, 15, 30, tzinfo=UTC),
+    )
+    assert (second.report_id, second.created_at) == (second_id, None)
 
 
 def test_get_draft_maps_row_to_report(mock_connect):

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from documentation_assistant.backend.db.connection import connect
 from documentation_assistant.backend.schemas.reports import (
     DAPSections,
+    ReportSummary,
     StoredReportDraft,
 )
 
@@ -16,8 +17,9 @@ def save_draft(path: Path, notes: str, sections: DAPSections) -> StoredReportDra
     with connect(path) as connection:
         connection.execute(
             """
-            INSERT INTO report_drafts (report_id, notes, data, assessment, plan)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO report_drafts
+                (report_id, notes, data, assessment, plan, created_at)
+            VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             """,
             (
                 str(draft.report_id),
@@ -28,6 +30,18 @@ def save_draft(path: Path, notes: str, sections: DAPSections) -> StoredReportDra
             ),
         )
     return draft
+
+
+def list_drafts(path: Path) -> list[ReportSummary]:
+    """List draft IDs and timestamps in reverse insertion order."""
+    with connect(path) as connection:
+        rows = connection.execute(
+            "SELECT report_id, created_at FROM report_drafts ORDER BY rowid DESC"
+        ).fetchall()
+    return [
+        ReportSummary.model_validate({"report_id": report_id, "created_at": created_at})
+        for report_id, created_at in rows
+    ]
 
 
 def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:

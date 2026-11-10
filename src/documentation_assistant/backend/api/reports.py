@@ -1,4 +1,4 @@
-"""API endpoints for generating and retrieving DAP drafts."""
+"""API endpoints for generating, listing, and retrieving DAP drafts."""
 
 from uuid import UUID
 
@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
-from documentation_assistant.backend.db import get_draft, save_draft
+from documentation_assistant.backend.db import get_draft, list_drafts, save_draft
 from documentation_assistant.backend.llm.ollama import (
     InvalidModelResponse,
     generate_dap,
@@ -14,6 +14,7 @@ from documentation_assistant.backend.llm.ollama import (
 from documentation_assistant.backend.schemas.reports import (
     GenerateReportRequest,
     ReportDraft,
+    ReportSummary,
     StoredReportDraft,
 )
 
@@ -50,6 +51,12 @@ async def generate_report(
     return await run_in_threadpool(
         save_draft, request.app.state.database_path, payload.notes, sections
     )
+
+
+@router.get("", response_model=list[ReportSummary])
+def list_reports(request: Request) -> list[ReportSummary]:
+    """Return saved draft summaries, newest first."""
+    return list_drafts(request.app.state.database_path)
 
 
 @router.get("/{report_id}", response_model=StoredReportDraft)
