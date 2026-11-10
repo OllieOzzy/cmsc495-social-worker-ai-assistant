@@ -18,7 +18,22 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
                 notes TEXT NOT NULL,
                 data TEXT NOT NULL,
                 assessment TEXT NOT NULL,
-                plan TEXT NOT NULL
+                plan TEXT NOT NULL,
+                created_at TEXT
             )
         """)
+        _ensure_created_at(connection)
         yield connection
+
+
+def _ensure_created_at(connection: sqlite3.Connection) -> None:
+    """Add the timestamp column to databases created before report listing."""
+    column_query = """
+        SELECT 1 FROM pragma_table_info('report_drafts') WHERE name = 'created_at'
+    """
+    if connection.execute(column_query).fetchone() is None:
+        # Recheck under the write lock in case another request migrated it.
+        connection.execute("BEGIN IMMEDIATE")
+        if connection.execute(column_query).fetchone() is None:
+            # Leave existing drafts at NULL because their save times are unknown.
+            connection.execute("ALTER TABLE report_drafts ADD COLUMN created_at TEXT")
