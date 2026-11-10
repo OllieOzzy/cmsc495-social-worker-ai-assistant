@@ -1,9 +1,10 @@
 """API endpoints for generating, listing, and retrieving DAP drafts."""
 
+from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from documentation_assistant.backend.db import get_draft, list_drafts, save_draft
@@ -14,6 +15,7 @@ from documentation_assistant.backend.llm.ollama import (
 from documentation_assistant.backend.schemas.reports import (
     GenerateReportRequest,
     ReportDraft,
+    ReportFilters,
     ReportSummary,
     StoredReportDraft,
 )
@@ -49,14 +51,20 @@ async def generate_report(
         ) from exc
     # Run the synchronous SQLite write off the event loop.
     return await run_in_threadpool(
-        save_draft, request.app.state.database_path, payload.notes, sections
+        save_draft,
+        request.app.state.database_path,
+        payload.notes,
+        sections,
+        payload.metadata,
     )
 
 
 @router.get("", response_model=list[ReportSummary])
-def list_reports(request: Request) -> list[ReportSummary]:
-    """Return saved draft summaries, newest first."""
-    return list_drafts(request.app.state.database_path)
+def list_reports(
+    request: Request, filters: Annotated[ReportFilters, Query()]
+) -> list[ReportSummary]:
+    """Return saved draft summaries matching the supplied filters, newest first."""
+    return list_drafts(request.app.state.database_path, filters)
 
 
 @router.get("/{report_id}", response_model=StoredReportDraft)

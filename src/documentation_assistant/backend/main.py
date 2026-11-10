@@ -15,21 +15,7 @@ def create_app() -> FastAPI:
         title="Social Worker Documentation Assistant API",
         description=(
             "The API supports a school social work documentation workflow, from "
-            "session notes through an approved PDF based on the school DAP template. "
-            "Use synthetic student data only.\n\n"
-            "**Available now**\n\n"
-            "- Submit brief session notes and use local Ollama to generate a draft "
-            "with Data, Assessment, and Plan sections. The model is instructed to "
-            "use only information supported by the notes and mark missing details "
-            "as `Not documented.`.\n"
-            "- Save source notes and drafts in local SQLite, list saved drafts, "
-            "and retrieve each draft with its notes for side-by-side review.\n\n"
-            "**Planned workflow**\n\n"
-            "- Upload a session note file and review the extracted text before "
-            "generating a draft.\n"
-            "- Filter saved reports, edit the draft, and explicitly approve it after "
-            "checking it against the source notes.\n"
-            "- Download the approved report as a PDF using the school DAP template."
+            "session notes through an approved PDF based on the school DAP template."
         ),
         version="0.1.0",
     )

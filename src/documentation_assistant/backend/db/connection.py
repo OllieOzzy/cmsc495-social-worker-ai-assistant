@@ -5,6 +5,16 @@ from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path
 
+_OPTIONAL_COLUMNS = (
+    "created_at",
+    "student_name",
+    "student_id",
+    "school",
+    "grade",
+    "date_of_service",
+    "social_worker_name",
+)
+
 
 @contextmanager
 def connect(path: Path) -> Iterator[sqlite3.Connection]:
@@ -19,21 +29,30 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
                 data TEXT NOT NULL,
                 assessment TEXT NOT NULL,
                 plan TEXT NOT NULL,
-                created_at TEXT
+                created_at TEXT,
+                student_name TEXT,
+                student_id TEXT,
+                school TEXT,
+                grade TEXT,
+                date_of_service TEXT,
+                social_worker_name TEXT
             )
         """)
-        _ensure_created_at(connection)
+        _ensure_optional_columns(connection)
         yield connection
 
 
-def _ensure_created_at(connection: sqlite3.Connection) -> None:
-    """Add the timestamp column to databases created before report listing."""
-    column_query = """
-        SELECT 1 FROM pragma_table_info('report_drafts') WHERE name = 'created_at'
-    """
-    if connection.execute(column_query).fetchone() is None:
-        # Recheck under the write lock in case another request migrated it.
-        connection.execute("BEGIN IMMEDIATE")
-        if connection.execute(column_query).fetchone() is None:
-            # Leave existing drafts at NULL because their save times are unknown.
-            connection.execute("ALTER TABLE report_drafts ADD COLUMN created_at TEXT")
+def _ensure_optional_columns(connection: sqlite3.Connection) -> None:
+    """Add nullable columns to databases created with an older schema."""
+    column_query = "SELECT name FROM pragma_table_info('report_drafts')"
+    columns = {name for (name,) in connection.execute(column_query)}
+    if all(column in columns for column in _OPTIONAL_COLUMNS):
+        return
+
+    # Recheck under the write lock in case another request migrated the database.
+    connection.execute("BEGIN IMMEDIATE")
+    columns = {name for (name,) in connection.execute(column_query)}
+    for column in _OPTIONAL_COLUMNS:
+        if column not in columns:
+            # Leave old save times and unrecorded report details at NULL.
+            connection.execute(f"ALTER TABLE report_drafts ADD COLUMN {column} TEXT")

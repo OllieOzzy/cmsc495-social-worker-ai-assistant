@@ -49,7 +49,7 @@ Change `--port` if another application is using port 8000.
 | [GET /docs](http://127.0.0.1:8000/docs) | Interactive API documentation. |
 | [GET /openapi.json](http://127.0.0.1:8000/openapi.json) | Machine-readable API schema. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
-| `GET /reports` | Lists saved draft summaries, newest saved first. |
+| `GET /reports` | Lists and filters saved draft summaries, newest saved first. |
 | `GET /reports/{report_id}` | Retrieves a saved draft and its source notes. |
 
 The health endpoint returns:
@@ -89,6 +89,16 @@ backend starts from the repository root. To use another location, set
 Use `GET /reports` to find a saved draft without already knowing its ID. Each
 summary contains `report_id`, `status`, and a UTC `created_at` timestamp.
 Drafts saved before timestamps were introduced have `created_at: null`.
+When generating a draft, you can include a `metadata` object with
+`student_name`, `student_id`, `school`, `grade`, `date_of_service`, and
+`social_worker_name`.
+Use a string for grade and `YYYY-MM-DD` for dates.
+
+Filter the list with any combination of `student_name` and
+`social_worker_name` (partial, case-insensitive matches),
+`student_id`, `school`, `grade`, `date_from`, and `date_to`. The date range
+is inclusive and uses date of service. Drafts with missing values remain in
+the unfiltered list.
 
 ## Tests
 

@@ -43,6 +43,12 @@ def test_save_draft_inserts_notes_and_sections(mock_connect):
         sections.data,
         sections.assessment,
         sections.plan,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
 
 
@@ -51,8 +57,17 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
     first_id, second_id = uuid4(), uuid4()
     execute = mock_connect.return_value.__enter__.return_value.execute
     execute.return_value.fetchall.return_value = [
-        (str(first_id), "2026-11-09T15:30:00Z"),
-        (str(second_id), None),
+        (
+            str(first_id),
+            "2026-11-09T15:30:00Z",
+            "Synthetic Student",
+            None,
+            None,
+            None,
+            None,
+            "Jordan Example",
+        ),
+        (str(second_id), None, None, None, None, None, None, None),
     ]
 
     first, second = drafts.list_drafts(Path("unused.db"))
@@ -62,6 +77,10 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
         datetime(2026, 11, 9, 15, 30, tzinfo=UTC),
     )
     assert (second.report_id, second.created_at) == (second_id, None)
+    assert first.metadata is not None
+    assert first.metadata.student_name == "Synthetic Student"
+    assert first.metadata.social_worker_name == "Jordan Example"
+    assert second.metadata is None
 
 
 def test_get_draft_maps_row_to_report(mock_connect):
@@ -71,7 +90,7 @@ def test_get_draft_maps_row_to_report(mock_connect):
     notes = "Synthetic student practiced a breathing exercise."
     sections = ("Breathing exercise practiced.", "Not documented.", "Check in Friday.")
     execute = mock_connect.return_value.__enter__.return_value.execute
-    execute.return_value.fetchone.return_value = (notes, *sections)
+    execute.return_value.fetchone.return_value = (notes, *sections, *(None,) * 6)
 
     draft = drafts.get_draft(path, report_id)
 
@@ -80,6 +99,7 @@ def test_get_draft_maps_row_to_report(mock_connect):
         "report_id": report_id,
         "status": "draft",
         "notes": notes,
+        "metadata": None,
         "sections": dict(zip(("data", "assessment", "plan"), sections, strict=True)),
     }
     mock_connect.assert_called_once_with(path)
