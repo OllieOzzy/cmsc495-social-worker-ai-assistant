@@ -60,6 +60,8 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
         (
             str(first_id),
             "2026-11-09T15:30:00Z",
+            "approved",
+            "Taylor Example",
             "Synthetic Student",
             None,
             None,
@@ -67,7 +69,7 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
             None,
             "Jordan Example",
         ),
-        (str(second_id), None, None, None, None, None, None, None),
+        (str(second_id), None, "draft", None, None, None, None, None, None, None),
     ]
 
     first, second = drafts.list_drafts(Path("unused.db"))
@@ -80,6 +82,8 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
     assert first.metadata is not None
     assert first.metadata.student_name == "Synthetic Student"
     assert first.metadata.social_worker_name == "Jordan Example"
+    assert first.status == "approved"
+    assert first.approved_by == "Taylor Example"
     assert second.metadata is None
 
 
@@ -90,7 +94,15 @@ def test_get_draft_maps_row_to_report(mock_connect):
     notes = "Synthetic student practiced a breathing exercise."
     sections = ("Breathing exercise practiced.", "Not documented.", "Check in Friday.")
     execute = mock_connect.return_value.__enter__.return_value.execute
-    execute.return_value.fetchone.return_value = (notes, *sections, *(None,) * 6)
+    execute.return_value.fetchone.return_value = (
+        notes,
+        *sections,
+        "draft",
+        1,
+        None,
+        None,
+        *(None,) * 6,
+    )
 
     draft = drafts.get_draft(path, report_id)
 
@@ -100,6 +112,9 @@ def test_get_draft_maps_row_to_report(mock_connect):
         "status": "draft",
         "notes": notes,
         "metadata": None,
+        "revision": 1,
+        "approved_at": None,
+        "approved_by": None,
         "sections": dict(zip(("data", "assessment", "plan"), sections, strict=True)),
     }
     mock_connect.assert_called_once_with(path)

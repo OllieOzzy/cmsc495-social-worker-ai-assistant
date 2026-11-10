@@ -42,7 +42,11 @@ def test_generate_report_saves_valid_sections(monkeypatch, api_request):
         reports.generate_report(GenerateReportRequest(notes=NOTES), api_request)
     )
 
-    assert result is saved
+    assert result.model_dump() == {
+        "report_id": saved.report_id,
+        "sections": sections.model_dump(),
+        "status": "draft",
+    }
     generate.assert_awaited_once_with(NOTES)
     store.assert_awaited_once_with(
         reports.save_draft, api_request.app.state.database_path, NOTES, sections, None
