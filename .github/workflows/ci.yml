@@ -9,28 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Linting
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Check lint rules
-        run: python -m ruff check .
-
   workflow-lint:
     name: Workflow Linting
     runs-on: ubuntu-24.04
@@ -52,9 +30,63 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint"
 
+  workflow-formatting:
+    name: Workflow Formatting
+    needs: workflow-lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check GitHub Actions YAML formatting
+        run: >-
+          npx --yes prettier@3.9.10 --single-quote --end-of-line auto
+          --check ".github/**/*.{yml,yaml}"
+
+  workflow-security:
+    name: Workflow Security
+    needs: workflow-formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Audit GitHub Actions security
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/zizmor.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/zizmorcore/zizmor/releases/download/v1.32.0/zizmor-x86_64-unknown-linux-gnu.tar.gz \
+            --output "$archive"
+          echo "bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" zizmor
+          # Report existing findings while the team reviews them.
+          "$RUNNER_TEMP/zizmor" --offline --no-exit-codes .github
+
+  lint:
+    name: Python Linting
+    needs: workflow-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check lint rules
+        run: python -m ruff check .
+
   formatting:
-    name: Formatting
-    needs: [lint, workflow-lint]
+    name: Python Formatting
+    needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
