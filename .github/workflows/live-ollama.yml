@@ -2,6 +2,11 @@ name: Live Ollama Smoke Test
 
 on:
   workflow_dispatch:
+    inputs:
+      run_quality_tests:
+        description: Run the DAP quality cases after the smoke test
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -45,10 +50,11 @@ jobs:
           tar --zstd -xf "$archive" -C "$RUNNER_TEMP/ollama"
           rm -- "$archive"
 
-      - name: Run smoke test against Ollama
+      - name: Run live Ollama tests
         env:
           OLLAMA_MODELS: ${{ runner.temp }}/ollama-models
           RUN_LIVE_OLLAMA: '1'
+          RUN_QUALITY_TESTS: ${{ inputs.run_quality_tests }}
         run: |
           ollama="$RUNNER_TEMP/ollama/bin/ollama"
           "$ollama" serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
@@ -60,6 +66,9 @@ jobs:
             "$ollama" pull "$OLLAMA_MODEL"
           fi
           python -m pytest tests/llm/test_live_ollama.py -v
+          if [[ "$RUN_QUALITY_TESTS" == 'true' ]]; then
+            python -m pytest tests/llm/test_dap_quality.py -v -s
+          fi
 
       - name: Show Ollama logs if the job fails
         if: failure()
