@@ -8,7 +8,9 @@ from uuid import uuid4
 import pytest
 
 from documentation_assistant.backend.db import drafts
-from documentation_assistant.backend.schemas.reports import DAPSections
+from documentation_assistant.backend.schemas.reports import DAPSections, ReportMetadata
+
+METADATA_FIELD_COUNT = len(ReportMetadata.model_fields)
 
 
 @pytest.fixture
@@ -43,12 +45,7 @@ def test_save_draft_inserts_notes_and_sections(mock_connect):
         sections.data,
         sections.assessment,
         sections.plan,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        *(None,) * METADATA_FIELD_COUNT,
     )
 
 
@@ -68,8 +65,10 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
             None,
             None,
             "Jordan Example",
+            "iep",
+            *(None,) * (METADATA_FIELD_COUNT - 7),
         ),
-        (str(second_id), None, "draft", None, None, None, None, None, None, None),
+        (str(second_id), None, "draft", None, *(None,) * METADATA_FIELD_COUNT),
     ]
 
     first, second = drafts.list_drafts(Path("unused.db"))
@@ -82,6 +81,7 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
     assert first.metadata is not None
     assert first.metadata.student_name == "Synthetic Student"
     assert first.metadata.social_worker_name == "Jordan Example"
+    assert first.metadata.service_basis == "iep"
     assert first.status == "approved"
     assert first.approved_by == "Taylor Example"
     assert second.metadata is None
@@ -101,7 +101,7 @@ def test_get_draft_maps_row_to_report(mock_connect):
         1,
         None,
         None,
-        *(None,) * 6,
+        *(None,) * METADATA_FIELD_COUNT,
     )
 
     draft = drafts.get_draft(path, report_id)

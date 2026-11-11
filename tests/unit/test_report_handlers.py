@@ -13,6 +13,7 @@ from documentation_assistant.backend.api import reports
 from documentation_assistant.backend.schemas.reports import (
     DAPSections,
     GenerateReportRequest,
+    ReportMetadata,
     StoredReportDraft,
 )
 
@@ -49,7 +50,11 @@ def test_generate_report_saves_valid_sections(monkeypatch, api_request):
     }
     generate.assert_awaited_once_with(NOTES)
     store.assert_awaited_once_with(
-        reports.save_draft, api_request.app.state.database_path, NOTES, sections, None
+        reports.save_draft,
+        api_request.app.state.database_path,
+        NOTES,
+        sections,
+        ReportMetadata(draft_source="ai_assisted"),
     )
 
 

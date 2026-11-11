@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from documentation_assistant.backend.main import create_app
+from documentation_assistant.backend.schemas.reports import SavedReportMetadata
 
 NOTES = "Synthetic student practiced a breathing exercise."
 
@@ -74,11 +75,82 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
     assert retrieved.json() == {
         **draft,
         "notes": NOTES,
-        "metadata": None,
+        "metadata": SavedReportMetadata(draft_source="ai_assisted").model_dump(
+            mode="json"
+        ),
         "revision": 1,
         "approved_at": None,
         "approved_by": None,
     }
+
+
+def test_manual_draft_can_be_saved_and_completed_without_ollama(app, mock_ollama):
+    """Save a manual draft and approve it after all three sections are filled."""
+
+    def unexpected_ollama_request(_):
+        pytest.fail("The manual draft must bypass Ollama")
+
+    mock_ollama(unexpected_ollama_request)
+    with TestClient(app) as client:
+        created = client.post(
+            "/reports/manual",
+            json={"notes": NOTES, "metadata": {"student_name": "Example Student"}},
+        )
+        assert created.status_code == 201
+        manual = created.json()
+        assert manual["notes"] == NOTES
+        assert manual["sections"] == {"data": "", "assessment": "", "plan": ""}
+        assert manual["metadata"]["draft_source"] == "handwritten"
+        assert manual["metadata"]["student_name"] == "Example Student"
+        path = f"/reports/{manual['report_id']}"
+        assert client.get(path).json() == manual
+        assert (
+            client.get("/reports").json()[0]["metadata"]["draft_source"]
+            == "handwritten"
+        )
+
+        partial = client.patch(
+            path,
+            json={
+                "revision": manual["revision"],
+                "sections": {"data": "Handwritten data.", "assessment": "", "plan": ""},
+            },
+        )
+        assert partial.status_code == 200
+        approval = {
+            "revision": partial.json()["revision"],
+            "approved_by": "Taylor Example",
+        }
+        incomplete = client.post(f"{path}/approve", json=approval)
+        assert incomplete.status_code == 409
+        assert client.get(path).json() == partial.json()
+        source_change = client.patch(
+            path,
+            json={
+                "revision": approval["revision"],
+                "metadata": {"draft_source": "ai_assisted"},
+            },
+        )
+        assert source_change.status_code == 422
+
+        completed = client.patch(
+            path,
+            json={
+                "revision": approval["revision"],
+                "sections": {
+                    "data": "Handwritten data.",
+                    "assessment": "Handwritten assessment.",
+                    "plan": "Handwritten plan.",
+                },
+            },
+        )
+        assert completed.status_code == 200
+        approval["revision"] = completed.json()["revision"]
+        approved = client.post(f"{path}/approve", json=approval)
+        assert approved.status_code == 200
+        approved_report = approved.json()
+        assert approved_report["status"] == "approved"
+        assert approved_report["metadata"]["draft_source"] == "handwritten"
 
 
 def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
@@ -131,7 +203,9 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
                 "report_id": report_id,
                 "status": "draft",
                 "notes": notes,
-                "metadata": None,
+                "metadata": SavedReportMetadata(draft_source="ai_assisted").model_dump(
+                    mode="json"
+                ),
                 "revision": 1,
                 "approved_at": None,
                 "approved_by": None,
@@ -341,6 +415,7 @@ def test_report_filters_match_saved_metadata(app, mock_ollama):
         "grade": "8",
         "date_of_service": "2026-10-01",
         "social_worker_name": "Jordan Example",
+        "service_basis": "iep",
     }
     second = {
         **first,
@@ -356,7 +431,11 @@ def test_report_filters_match_saved_metadata(app, mock_ollama):
             ).json()["report_id"]
             for details in (first, second)
         ]
-        assert client.get(f"/reports/{first_id}").json()["metadata"] == first
+        assert client.get(f"/reports/{first_id}").json()[
+            "metadata"
+        ] == SavedReportMetadata.model_validate(
+            {**first, "draft_source": "ai_assisted"}
+        ).model_dump(mode="json")
         for params, expected in (
             ({"student_name": "éVA"}, [first_id]),
             ({"social_worker_name": "jORdan", "school": "Example Middle"}, [first_id]),
@@ -375,6 +454,152 @@ def test_report_filters_match_saved_metadata(app, mock_ollama):
             "/reports", params={"date_from": "2026-11-01", "date_to": "2026-10-01"}
         )
         assert invalid.status_code == 422
+
+
+def test_service_basis_can_be_changed_and_cleared(app, mock_ollama):
+    """Save changes to the service basis and reject unknown values."""
+    sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
+    mock_ollama(
+        lambda _: httpx.Response(
+            200, json={"done": True, "message": {"content": json.dumps(sections)}}
+        )
+    )
+    with TestClient(app) as client:
+        created = client.post(
+            "/reports/generate",
+            json={"notes": NOTES, "metadata": {"service_basis": "iep"}},
+        )
+        assert created.status_code == 200
+        path = f"/reports/{created.json()['report_id']}"
+        report = client.get(path).json()
+        assert report["metadata"]["service_basis"] == "iep"
+
+        for value in ("504", "general_referral", None):
+            edited = client.patch(
+                path,
+                json={
+                    "revision": report["revision"],
+                    "metadata": {"service_basis": value},
+                },
+            )
+            assert edited.status_code == 200
+            report = client.get(path).json()
+            assert report["metadata"]["service_basis"] == value
+
+        invalid = client.patch(
+            path,
+            json={
+                "revision": report["revision"],
+                "metadata": {"service_basis": "other"},
+            },
+        )
+        assert invalid.status_code == 422
+
+
+def test_session_and_reporting_fields_round_trip(app, mock_ollama):
+    """Save the full set of new fields and recalculate duration after editing."""
+    sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
+
+    def reply(request):
+        assert json.loads(request.content)["messages"][1]["content"] == NOTES
+        return httpx.Response(
+            200, json={"done": True, "message": {"content": json.dumps(sections)}}
+        )
+
+    mock_ollama(reply)
+    metadata = {
+        "start_time": "09:10:00",
+        "end_time": "09:35:00",
+        "session_type": "individual",
+        "setting": "in_person",
+        "iep_504_goal_addressed": "Practice a grounding exercise.",
+        "social_worker_credential": "Example credential",
+        "safety_concern": "yes",
+        "safety_concern_description": "Synthetic example.",
+        "mandated_report_details": "Yes. Example agency, 2026-11-10, report EX-001.",
+        "supervisor_notification": "No. Synthetic example note.",
+        "draft_source": "ai_assisted",
+    }
+    with TestClient(app) as client:
+        created = client.post(
+            "/reports/generate", json={"notes": NOTES, "metadata": metadata}
+        )
+        assert created.status_code == 200
+        report_id = created.json()["report_id"]
+        path = f"/reports/{report_id}"
+        saved = client.get(path).json()
+        assert {field: saved["metadata"][field] for field in metadata} == metadata
+        assert saved["metadata"]["total_minutes"] == 25
+
+        edited = client.patch(
+            path,
+            json={
+                "revision": saved["revision"],
+                "metadata": {"end_time": "09:45", "supervisor_notification": None},
+            },
+        )
+        assert edited.status_code == 200
+        reopened = client.get(path).json()["metadata"]
+        assert reopened["total_minutes"] == 35
+        assert reopened["supervisor_notification"] is None
+        assert (
+            reopened["mandated_report_details"] == metadata["mandated_report_details"]
+        )
+
+
+def test_separate_reporting_fields_migrate_to_text_blocks(app):
+    """Preserve saved entries and allow the merged fields to be cleared."""
+    report_id = str(uuid4())
+    with closing(sqlite3.connect(app.state.database_path)) as db, db:
+        db.execute("""
+            CREATE TABLE report_drafts (
+                report_id TEXT PRIMARY KEY NOT NULL,
+                notes TEXT NOT NULL,
+                data TEXT NOT NULL,
+                assessment TEXT NOT NULL,
+                plan TEXT NOT NULL,
+                mandated_report_made TEXT,
+                mandated_report_agency TEXT,
+                mandated_report_date TEXT,
+                mandated_report_number TEXT,
+                supervisor_notified TEXT,
+                supervisor_notification_details TEXT
+            )
+        """)
+        db.execute(
+            "INSERT INTO report_drafts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                report_id,
+                NOTES,
+                NOTES,
+                "Not documented.",
+                "Not documented.",
+                "yes",
+                "Example agency",
+                "2026-11-10",
+                "EX-001",
+                "no",
+                "Example note.",
+            ),
+        )
+
+    with TestClient(app) as client:
+        path = f"/reports/{report_id}"
+        saved = client.get(path).json()
+        assert saved["metadata"]["mandated_report_details"] == (
+            "Yes\nAgency: Example agency\nDate: 2026-11-10\nReport #: EX-001"
+        )
+        assert saved["metadata"]["supervisor_notification"] == "No\nExample note."
+
+        edited = client.patch(
+            path,
+            json={
+                "revision": saved["revision"],
+                "metadata": {"mandated_report_details": None},
+            },
+        )
+        assert edited.status_code == 200
+        assert client.get(path).json()["metadata"]["mandated_report_details"] is None
 
 
 def test_list_reports_returns_empty_list_for_new_database(app):
