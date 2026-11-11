@@ -49,6 +49,7 @@ Change `--port` if another application is using port 8000.
 | [GET /docs](http://127.0.0.1:8000/docs) | Interactive API documentation. |
 | [GET /openapi.json](http://127.0.0.1:8000/openapi.json) | Machine-readable API schema. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
+| `POST /reports/manual` | Saves source notes and opens a draft with blank DAP sections. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
 | `GET /reports/{report_id}` | Retrieves a saved report, its source notes, and its review state. |
 | `PATCH /reports/{report_id}` | Saves corrected DAP sections or report details on a draft. |
@@ -62,7 +63,16 @@ The health endpoint returns:
 
 This checks API liveness and works independently of Ollama.
 
-## Generate a Draft
+## Start a Draft
+
+For manual writing, send the notes and optional metadata to
+`POST /reports/manual`. The response contains the saved notes and blank
+DAP sections. You can save a draft while sections are still blank and
+approve it after all three contain text. This workflow works with Ollama
+stopped.
+
+For AI-assisted writing, use `POST /reports/generate`. The API records the
+draft source based on the endpoint used.
 
 Start Ollama and run `ollama pull qwen3:8b` if the model is missing. The backend
 uses Ollama on `127.0.0.1:11434`. To use a different installed model, set
