@@ -54,9 +54,10 @@ async def generate_dap(notes: str) -> DAPSections:
     except (ValueError, KeyError, TypeError) as exc:
         raise InvalidModelResponse("The model returned an invalid draft.") from exc
 
-    # Verify the evidence without requiring the displayed Plan to quote the notes.
+    # Ollama may quote a wrapped source line as a single line.
+    normalized_notes = " ".join(notes.split())
     has_plan_evidence = bool(draft.plan_evidence) and all(
-        excerpt in notes for excerpt in draft.plan_evidence
+        " ".join(excerpt.split()) in normalized_notes for excerpt in draft.plan_evidence
     )
     return DAPSections(
         data=draft.data,
