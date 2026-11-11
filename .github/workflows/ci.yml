@@ -31,9 +31,30 @@ jobs:
       - name: Check lint rules
         run: python -m ruff check .
 
+  workflow-lint:
+    name: Workflow Linting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Lint GitHub Actions workflows
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$archive"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+
   formatting:
     name: Formatting
-    needs: lint
+    needs: [lint, workflow-lint]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
