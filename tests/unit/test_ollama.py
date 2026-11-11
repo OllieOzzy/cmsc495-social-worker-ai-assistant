@@ -59,13 +59,24 @@ def test_generate_dap_parses_completed_reply(ollama_post):
             "A follow-up meeting is planned for after school tomorrow.",
         ),
         (
+            f"{NOTES}\nThe student and social worker will meet Friday\n after lunch.",
+            "The student and social worker will check in Friday after lunch.",
+            ["The student and social worker will meet Friday after lunch."],
+            "The student and social worker will check in Friday after lunch.",
+        ),
+        (
             NOTES,
             "A follow-up is planned for Friday.",
             ["The social worker will follow up Friday."],
             "Not documented.",
         ),
     ],
-    ids=["missing-evidence", "matching-evidence", "invented-evidence"],
+    ids=[
+        "missing-evidence",
+        "matching-evidence",
+        "wrapped-evidence",
+        "invented-evidence",
+    ],
 )
 def test_generate_dap_requires_plan_evidence_from_notes(
     ollama_post, notes, plan, evidence, expected
