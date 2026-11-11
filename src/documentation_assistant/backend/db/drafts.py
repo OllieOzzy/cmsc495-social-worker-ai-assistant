@@ -1,4 +1,12 @@
-"""Store DAP reports, source notes, and review decisions."""
+"""Store DAP reports, source notes, and review decisions.
+
+Bandit flags queries built from strings as possible SQL injection (B608).
+The marked queries build their SQL from schema field names and fixed clauses.
+User input, such as notes or search filters, is bound separately to SQLite's
+``?`` placeholders so it cannot change the SQL statement. The B608 exceptions
+are safe as long as the SQL fragments come from the code and user values stay
+bound as parameters.
+"""
 
 import sqlite3
 from pathlib import Path
@@ -40,13 +48,14 @@ def save_draft(
         metadata=_read_metadata(metadata_values),
     )
     with connect(path) as connection:
+        # Only schema column names and generated placeholders are interpolated.
         connection.execute(
             f"""
             INSERT INTO report_drafts
                 (report_id, notes, data, assessment, plan, created_at, {_METADATA_COLUMNS})
             VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     {_METADATA_PLACEHOLDERS})
-            """,
+            """,  # nosec B608
             (
                 str(draft.report_id),
                 notes,
@@ -93,7 +102,7 @@ def list_drafts(
             f"""
             SELECT report_id, created_at, status, approved_by, {_METADATA_COLUMNS}
             FROM report_drafts {where} ORDER BY rowid DESC
-            """,
+            """,  # nosec B608
             parameters,
         ).fetchall()
     return [
@@ -164,11 +173,12 @@ def _update_review(
     )
     with connect(path) as connection:
         # The conditional write prevents stale edits or approvals from winning a race.
+        # The callers build assignments from schema fields or fixed approval SQL.
         updated = connection.execute(
             f"""
             UPDATE report_drafts SET {assignments}, revision = revision + 1
             WHERE report_id = ? AND revision = ? AND status = 'draft' {complete}
-            """,
+            """,  # nosec B608
             (*values, str(report_id), revision),
         )
         report = _get_report(connection, report_id)
@@ -187,12 +197,13 @@ def _get_report(
     connection: sqlite3.Connection, report_id: UUID
 ) -> StoredReportDraft | None:
     """Read a report using the caller's connection and transaction."""
+    # The column list comes from the schema. The report ID is bound separately.
     row = connection.execute(
         f"""
         SELECT notes, data, assessment, plan, status, revision, approved_at, approved_by,
                {_METADATA_COLUMNS}
         FROM report_drafts WHERE report_id = ?
-        """,
+        """,  # nosec B608
         (str(report_id),),
     ).fetchone()
     if row is None:

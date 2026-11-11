@@ -1,4 +1,4 @@
-name: Live Ollama Smoke Test
+name: Live Ollama Test
 
 on:
   workflow_dispatch:
