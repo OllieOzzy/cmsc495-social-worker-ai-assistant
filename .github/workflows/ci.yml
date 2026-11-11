@@ -125,4 +125,5 @@ jobs:
           test -f coverage-data/.coverage.unit
           test -f coverage-data/.coverage.integration
           python -m coverage combine coverage-data
-          python -m coverage report --show-missing --format=markdown >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report --show-missing --precision=2 --fail-under=90 \
+            --format=markdown >> "$GITHUB_STEP_SUMMARY"
