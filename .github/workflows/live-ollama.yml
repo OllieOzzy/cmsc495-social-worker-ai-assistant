@@ -11,65 +11,47 @@ on:
 permissions:
   contents: read
 
+env:
+  OLLAMA_VERSION: '0.40.16'
+  OLLAMA_MODEL: qwen3:4b
+  RUN_LIVE_OLLAMA: '1'
+
 jobs:
   smoke-test:
+    name: Smoke Test
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      OLLAMA_VERSION: '0.40.16'
-      OLLAMA_MODEL: qwen3:4b
 
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-      - name: Install Python dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Restore Ollama and model cache
-        id: ollama-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            ${{ runner.temp }}/ollama
-            ${{ runner.temp }}/ollama-models
-          key: ${{ runner.os }}-${{ runner.arch }}-ollama-${{ env.OLLAMA_VERSION }}-${{ env.OLLAMA_MODEL }}-v1
-
-      - name: Install Ollama on cache miss
-        if: steps.ollama-cache.outputs.cache-hit != 'true'
+      - name: Set up live Ollama tests
+        uses: ./.github/actions/setup-live-ollama
+      - name: Run Ollama smoke test
+        run: python -m pytest tests/llm/test_live_ollama.py -v
+      - name: Show Ollama logs if the job fails
+        if: failure()
         run: |
-          archive="$RUNNER_TEMP/ollama-linux-amd64.tar.zst"
-          curl --fail --silent --show-error --location --retry 3 \
-            "https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/ollama-linux-amd64.tar.zst" \
-            --output "$archive"
-          echo "87bfafb2acbc89b2e6a1be0a9043de6aa75fb450696f86bc426e65fc448f788d  $archive" | sha256sum --check
-          mkdir -p "$RUNNER_TEMP/ollama"
-          tar --zstd -xf "$archive" -C "$RUNNER_TEMP/ollama"
-          rm -- "$archive"
-
-      - name: Run live Ollama tests
-        env:
-          OLLAMA_MODELS: ${{ runner.temp }}/ollama-models
-          RUN_LIVE_OLLAMA: '1'
-          RUN_QUALITY_TESTS: ${{ inputs.run_quality_tests }}
-        run: |
-          ollama="$RUNNER_TEMP/ollama/bin/ollama"
-          "$ollama" serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
-          ollama_pid=$!
-          trap 'kill "$ollama_pid" 2>/dev/null || true' EXIT
-          curl --fail --silent --show-error --retry 15 --retry-connrefused \
-            --retry-delay 1 --max-time 5 http://127.0.0.1:11434/api/version
-          if ! "$ollama" show "$OLLAMA_MODEL" > /dev/null 2>&1; then
-            "$ollama" pull "$OLLAMA_MODEL"
-          fi
-          python -m pytest tests/llm/test_live_ollama.py -v
-          if [[ "$RUN_QUALITY_TESTS" == 'true' ]]; then
-            python -m pytest tests/llm/test_dap_quality.py -v -s
+          if [[ -f "$RUNNER_TEMP/ollama.log" ]]; then
+            cat "$RUNNER_TEMP/ollama.log"
           fi
 
+  dap-quality-tests:
+    name: DAP Quality Tests
+    needs: smoke-test
+    if: ${{ inputs.run_quality_tests }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up live Ollama tests
+        uses: ./.github/actions/setup-live-ollama
+      - name: Run DAP quality tests
+        run: python -m pytest tests/llm/test_dap_quality.py -v -s
       - name: Show Ollama logs if the job fails
         if: failure()
         run: |
