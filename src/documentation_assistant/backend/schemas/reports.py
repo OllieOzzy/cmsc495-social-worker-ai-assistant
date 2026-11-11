@@ -1,16 +1,26 @@
 """Validate requests and responses for generating and retrieving DAP drafts."""
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 # Trim surrounding whitespace before checking whether the text is empty.
 NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 MetadataText = Annotated[NonBlankText, StringConstraints(max_length=200)]
+ReportingText = Annotated[NonBlankText, StringConstraints(max_length=1000)]
 ReportStatus = Literal["draft", "approved"]
 ReportRevision = Annotated[int, Field(strict=True, ge=1, le=2**63 - 1)]
+YesNo = Literal["yes", "no"]
 
 
 class ReportMetadata(BaseModel):
@@ -24,6 +34,42 @@ class ReportMetadata(BaseModel):
     grade: MetadataText | None = None
     date_of_service: date | None = None
     social_worker_name: MetadataText | None = None
+    service_basis: Literal["iep", "504", "general_referral"] | None = None
+    start_time: time | None = None
+    end_time: time | None = None
+    session_type: Literal["individual", "group", "family"] | None = None
+    setting: Literal["in_person", "virtual"] | None = None
+    iep_504_goal_addressed: MetadataText | None = None
+    social_worker_credential: MetadataText | None = None
+    safety_concern: YesNo | None = None
+    safety_concern_description: MetadataText | None = None
+    mandated_report_details: ReportingText | None = None
+    supervisor_notification: ReportingText | None = None
+    draft_source: Literal["handwritten", "ai_assisted"] | None = None
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def validate_session_time(cls, value: time | None) -> time | None:
+        """Accept local clock times at minute precision."""
+        if value is not None and (
+            value.tzinfo is not None or value.second or value.microsecond
+        ):
+            raise ValueError("Use a local time in HH:MM format")
+        return value
+
+
+class SavedReportMetadata(ReportMetadata):
+    """Return saved details with the duration derived from the session times."""
+
+    @computed_field
+    @property
+    def total_minutes(self) -> int | None:
+        """Return the duration when both times form a valid same-day range."""
+        if self.start_time is None or self.end_time is None:
+            return None
+        start = self.start_time.hour * 60 + self.start_time.minute
+        end = self.end_time.hour * 60 + self.end_time.minute
+        return end - start if end >= start else None
 
 
 class ReportFilters(BaseModel):
@@ -52,7 +98,7 @@ class ReportFilters(BaseModel):
 
 
 class GenerateReportRequest(BaseModel):
-    """Accept session notes for draft generation."""
+    """Accept session notes and optional details for a new draft."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -60,10 +106,18 @@ class GenerateReportRequest(BaseModel):
     metadata: ReportMetadata | None = None
 
 
-class DAPSections(BaseModel):
-    """Require Data, Assessment, and Plan text in the model output."""
+class DraftSections(BaseModel):
+    """Accept editable DAP sections, including sections still blank."""
 
     model_config = ConfigDict(extra="forbid")
+
+    data: Annotated[str, StringConstraints(strip_whitespace=True)]
+    assessment: Annotated[str, StringConstraints(strip_whitespace=True)]
+    plan: Annotated[str, StringConstraints(strip_whitespace=True)]
+
+
+class DAPSections(DraftSections):
+    """Require Data, Assessment, and Plan text in the model output."""
 
     data: NonBlankText
     assessment: NonBlankText
@@ -74,20 +128,21 @@ class ReportContent(BaseModel):
     """Identify a report and carry its DAP sections."""
 
     report_id: UUID
-    sections: DAPSections
+    sections: DraftSections
 
 
 class ReportDraft(ReportContent):
     """Return a newly generated draft."""
 
     status: Literal["draft"] = "draft"
+    sections: DAPSections
 
 
 class StoredReportDraft(ReportContent):
     """Return the saved report, source notes, and review state."""
 
     notes: NonBlankText
-    metadata: ReportMetadata | None = None
+    metadata: SavedReportMetadata | None = None
     status: ReportStatus = "draft"
     revision: ReportRevision = 1
     approved_at: datetime | None = None
@@ -111,12 +166,17 @@ class ApproveReportRequest(ReportRevisionRequest):
 class EditReportRequest(ReportRevisionRequest):
     """Update DAP sections, report metadata, or both on a saved draft."""
 
-    sections: DAPSections | None = None
+    sections: DraftSections | None = None
     metadata: ReportMetadata | None = None
 
     @model_validator(mode="after")
     def validate_changes(self) -> "EditReportRequest":
         """Require sections or at least one explicitly supplied metadata field."""
+        if (
+            self.metadata is not None
+            and "draft_source" in self.metadata.model_fields_set
+        ):
+            raise ValueError("Draft source is set when the report is created")
         if self.sections is None and (
             self.metadata is None or not self.metadata.model_fields_set
         ):
@@ -132,5 +192,5 @@ class ReportSummary(BaseModel):
     report_id: UUID
     status: ReportStatus = "draft"
     created_at: datetime | None
-    metadata: ReportMetadata | None = None
+    metadata: SavedReportMetadata | None = None
     approved_by: MetadataText | None = None

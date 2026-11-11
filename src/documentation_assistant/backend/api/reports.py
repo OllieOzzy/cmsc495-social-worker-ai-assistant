@@ -21,15 +21,33 @@ from documentation_assistant.backend.llm.ollama import (
 )
 from documentation_assistant.backend.schemas.reports import (
     ApproveReportRequest,
+    DraftSections,
     EditReportRequest,
     GenerateReportRequest,
     ReportDraft,
     ReportFilters,
+    ReportMetadata,
     ReportSummary,
     StoredReportDraft,
 )
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
+
+
+@router.post("/manual", response_model=StoredReportDraft, status_code=201)
+def create_manual_report(
+    payload: GenerateReportRequest, request: Request
+) -> StoredReportDraft:
+    """Save session notes with empty DAP sections for manual writing."""
+    metadata = (payload.metadata or ReportMetadata()).model_copy(
+        update={"draft_source": "handwritten"}
+    )
+    return save_draft(
+        request.app.state.database_path,
+        payload.notes,
+        DraftSections(data="", assessment="", plan=""),
+        metadata,
+    )
 
 
 @router.post("/generate", response_model=ReportDraft)
@@ -59,14 +77,17 @@ async def generate_report(
             502, "Ollama returned an incomplete or invalid DAP draft."
         ) from exc
     # Run the synchronous SQLite write off the event loop.
+    metadata = (payload.metadata or ReportMetadata()).model_copy(
+        update={"draft_source": "ai_assisted"}
+    )
     draft = await run_in_threadpool(
         save_draft,
         request.app.state.database_path,
         payload.notes,
         sections,
-        payload.metadata,
+        metadata,
     )
-    return ReportDraft(report_id=draft.report_id, sections=draft.sections)
+    return ReportDraft(report_id=draft.report_id, sections=sections)
 
 
 @router.get("", response_model=list[ReportSummary])

@@ -13,6 +13,18 @@ _ADDED_COLUMNS = {
     "grade": "TEXT",
     "date_of_service": "TEXT",
     "social_worker_name": "TEXT",
+    "service_basis": "TEXT",
+    "start_time": "TEXT",
+    "end_time": "TEXT",
+    "session_type": "TEXT",
+    "setting": "TEXT",
+    "iep_504_goal_addressed": "TEXT",
+    "social_worker_credential": "TEXT",
+    "safety_concern": "TEXT",
+    "safety_concern_description": "TEXT",
+    "mandated_report_details": "TEXT",
+    "supervisor_notification": "TEXT",
+    "draft_source": "TEXT",
     "status": "TEXT NOT NULL DEFAULT 'draft'",
     "revision": "INTEGER NOT NULL DEFAULT 1",
     "approved_at": "TEXT",
@@ -40,6 +52,18 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
                 grade TEXT,
                 date_of_service TEXT,
                 social_worker_name TEXT,
+                service_basis TEXT,
+                start_time TEXT,
+                end_time TEXT,
+                session_type TEXT,
+                setting TEXT,
+                iep_504_goal_addressed TEXT,
+                social_worker_credential TEXT,
+                safety_concern TEXT,
+                safety_concern_description TEXT,
+                mandated_report_details TEXT,
+                supervisor_notification TEXT,
+                draft_source TEXT,
                 status TEXT NOT NULL DEFAULT 'draft',
                 revision INTEGER NOT NULL DEFAULT 1,
                 approved_at TEXT,
@@ -66,3 +90,54 @@ def _ensure_added_columns(connection: sqlite3.Connection) -> None:
             connection.execute(
                 f"ALTER TABLE report_drafts ADD COLUMN {column} {definition}"
             )
+    _merge_reporting_fields(connection, columns)
+
+
+def _merge_reporting_fields(
+    connection: sqlite3.Connection, original_columns: set[str]
+) -> None:
+    """Carry saved reporting details into the new text fields once."""
+    if (
+        "mandated_report_details" not in original_columns
+        and {
+            "mandated_report_made",
+            "mandated_report_agency",
+            "mandated_report_date",
+            "mandated_report_number",
+        }
+        <= original_columns
+    ):
+        connection.execute("""
+            UPDATE report_drafts
+            SET mandated_report_details = NULLIF(trim(
+                CASE mandated_report_made
+                    WHEN 'yes' THEN 'Yes' || char(10)
+                    WHEN 'no' THEN 'No' || char(10)
+                    ELSE ''
+                END
+                || COALESCE('Agency: ' || mandated_report_agency || char(10), '')
+                || COALESCE('Date: ' || mandated_report_date || char(10), '')
+                || COALESCE('Report #: ' || mandated_report_number, ''),
+                char(10)
+            ), '')
+        """)
+
+    if (
+        "supervisor_notification" not in original_columns
+        and {
+            "supervisor_notified",
+            "supervisor_notification_details",
+        }
+        <= original_columns
+    ):
+        connection.execute("""
+            UPDATE report_drafts
+            SET supervisor_notification = NULLIF(trim(
+                CASE supervisor_notified
+                    WHEN 'yes' THEN 'Yes' || char(10)
+                    WHEN 'no' THEN 'No' || char(10)
+                    ELSE ''
+                END || COALESCE(supervisor_notification_details, ''),
+                char(10)
+            ), '')
+        """)

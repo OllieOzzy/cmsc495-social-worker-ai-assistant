@@ -6,13 +6,18 @@ from uuid import UUID, uuid4
 
 from documentation_assistant.backend.db.connection import connect
 from documentation_assistant.backend.schemas.reports import (
-    DAPSections,
+    DraftSections,
     EditReportRequest,
     ReportFilters,
     ReportMetadata,
     ReportSummary,
+    SavedReportMetadata,
     StoredReportDraft,
 )
+
+_METADATA_FIELDS = tuple(ReportMetadata.model_fields)
+_METADATA_COLUMNS = ", ".join(_METADATA_FIELDS)
+_METADATA_PLACEHOLDERS = ", ".join("?" for _ in _METADATA_FIELDS)
 
 
 class ReviewConflict(Exception):
@@ -22,23 +27,25 @@ class ReviewConflict(Exception):
 def save_draft(
     path: Path,
     notes: str,
-    sections: DAPSections,
+    sections: DraftSections,
     metadata: ReportMetadata | None = None,
 ) -> StoredReportDraft:
     """Insert a draft with a new ID and return it after the write commits."""
+    details = metadata.model_dump(mode="json") if metadata is not None else {}
+    metadata_values = [details.get(field) for field in _METADATA_FIELDS]
     draft = StoredReportDraft(
-        report_id=uuid4(), notes=notes, sections=sections, metadata=metadata
+        report_id=uuid4(),
+        notes=notes,
+        sections=sections,
+        metadata=_read_metadata(metadata_values),
     )
-    details = (metadata or ReportMetadata()).model_dump(mode="json")
     with connect(path) as connection:
         connection.execute(
-            """
+            f"""
             INSERT INTO report_drafts
-                (report_id, notes, data, assessment, plan, created_at,
-                 student_name, student_id, school, grade, date_of_service,
-                 social_worker_name)
+                (report_id, notes, data, assessment, plan, created_at, {_METADATA_COLUMNS})
             VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                    ?, ?, ?, ?, ?, ?)
+                    {_METADATA_PLACEHOLDERS})
             """,
             (
                 str(draft.report_id),
@@ -46,12 +53,7 @@ def save_draft(
                 sections.data,
                 sections.assessment,
                 sections.plan,
-                details["student_name"],
-                details["student_id"],
-                details["school"],
-                details["grade"],
-                details["date_of_service"],
-                details["social_worker_name"],
+                *metadata_values,
             ),
         )
     return draft
@@ -89,8 +91,7 @@ def list_drafts(
         connection.create_function("casefold", 1, _casefold)
         rows = connection.execute(
             f"""
-            SELECT report_id, created_at, status, approved_by, student_name, student_id,
-                   school, grade, date_of_service, social_worker_name
+            SELECT report_id, created_at, status, approved_by, {_METADATA_COLUMNS}
             FROM report_drafts {where} ORDER BY rowid DESC
             """,
             parameters,
@@ -144,6 +145,7 @@ def approve_draft(
         "status = 'approved', approved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
         "approved_by = ?",
         (approved_by,),
+        require_complete=True,
     )
 
 
@@ -153,14 +155,19 @@ def _update_review(
     revision: int,
     assignments: str,
     values: tuple[str | None, ...] = (),
+    *,
+    require_complete: bool = False,
 ) -> StoredReportDraft | None:
     """Apply a fixed SQL update and read its result in the same transaction."""
+    complete = (
+        "AND data <> '' AND assessment <> '' AND plan <> ''" if require_complete else ""
+    )
     with connect(path) as connection:
         # The conditional write prevents stale edits or approvals from winning a race.
         updated = connection.execute(
             f"""
             UPDATE report_drafts SET {assignments}, revision = revision + 1
-            WHERE report_id = ? AND revision = ? AND status = 'draft'
+            WHERE report_id = ? AND revision = ? AND status = 'draft' {complete}
             """,
             (*values, str(report_id), revision),
         )
@@ -168,6 +175,10 @@ def _update_review(
         if updated.rowcount == 0 and report is not None:
             if report.status == "approved":
                 raise ReviewConflict("Approved reports are read-only.")
+            if require_complete and report.revision == revision:
+                raise ReviewConflict(
+                    "Complete all three DAP sections before approving."
+                )
             raise ReviewConflict("Report changed. Reload the current revision.")
         return report
 
@@ -177,9 +188,9 @@ def _get_report(
 ) -> StoredReportDraft | None:
     """Read a report using the caller's connection and transaction."""
     row = connection.execute(
-        """
+        f"""
         SELECT notes, data, assessment, plan, status, revision, approved_at, approved_by,
-               student_name, student_id, school, grade, date_of_service, social_worker_name
+               {_METADATA_COLUMNS}
         FROM report_drafts WHERE report_id = ?
         """,
         (str(report_id),),
@@ -202,7 +213,7 @@ def _get_report(
         {
             "report_id": report_id,
             "notes": notes,
-            "sections": DAPSections(data=data, assessment=assessment, plan=plan),
+            "sections": DraftSections(data=data, assessment=assessment, plan=plan),
             "metadata": _read_metadata(details),
             "status": status,
             "revision": revision,
@@ -212,12 +223,12 @@ def _get_report(
     )
 
 
-def _read_metadata(values: list[str | None]) -> ReportMetadata | None:
+def _read_metadata(values: list[str | None]) -> SavedReportMetadata | None:
     """Restore user-supplied details from the selected SQLite columns."""
     if not any(values):
         return None
-    return ReportMetadata.model_validate(
-        dict(zip(ReportMetadata.model_fields, values, strict=True))
+    return SavedReportMetadata.model_validate(
+        dict(zip(_METADATA_FIELDS, values, strict=True))
     )
 
 
