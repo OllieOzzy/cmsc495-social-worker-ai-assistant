@@ -1,5 +1,6 @@
-name: CI
+name: CI Pipeline
 
+# Run checks on pushes and pull requests. GitHub also lets us start CI manually.
 on:
   push:
   pull_request:
@@ -8,7 +9,9 @@ on:
 permissions:
   contents: read
 
+# Each job uses needs to wait for the earlier checks to pass.
 jobs:
+  # Catch mistakes in GitHub Actions settings, expressions, and job dependencies.
   workflow-lint:
     name: Workflow Linting
     runs-on: ubuntu-24.04
@@ -26,10 +29,12 @@ jobs:
           curl --fail --silent --show-error --location --retry 3 \
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
             --output "$archive"
+          # Check the download against the checksum from the release page.
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $archive" | sha256sum --check
           tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint"
 
+  # Check YAML formatting in both workflows and shared actions under .github.
   workflow-formatting:
     name: Workflow Formatting
     needs: workflow-lint
@@ -44,6 +49,7 @@ jobs:
           npx --yes prettier@3.9.10 --single-quote --end-of-line auto
           --check ".github/**/*.{yml,yaml}"
 
+  # Scan the GitHub Actions files for security issues.
   workflow-security:
     name: Workflow Security
     needs: workflow-formatting
@@ -62,9 +68,10 @@ jobs:
             --output "$archive"
           echo "bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b  $archive" | sha256sum --check
           tar -xzf "$archive" -C "$RUNNER_TEMP" zizmor
-          # Report existing findings while the team reviews them.
+          # Security findings are report-only. Scanner errors still fail the job.
           "$RUNNER_TEMP/zizmor" --offline --no-exit-codes .github
 
+  # Use Ruff to check Python for problems like unused imports.
   lint:
     name: Python Linting
     needs: workflow-security
@@ -84,6 +91,7 @@ jobs:
       - name: Check lint rules
         run: python -m ruff check .
 
+  # Check that Python files follow Ruff's formatting rules.
   formatting:
     name: Python Formatting
     needs: lint
@@ -101,6 +109,7 @@ jobs:
       - name: Check formatting
         run: python -m ruff format --check .
 
+  # Bandit looks for common security issues in our backend code.
   python-security:
     name: Python Security
     needs: formatting
@@ -118,9 +127,28 @@ jobs:
       - name: Scan backend Python code
         run: python -m bandit -r src/documentation_assistant/backend
 
+  # Check our Python packages and their dependencies for known vulnerabilities.
+  dependency-security:
+    name: Dependency Security
+    needs: python-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install pip-audit
+        run: python -m pip install pip-audit==2.10.1
+      - name: Check Python dependencies for known vulnerabilities
+        run: python -m pip_audit --strict --progress-spinner off -r requirements.txt
+
+  # Run tests for individual pieces of code and save their coverage data.
   unit:
     name: Unit Tests
-    needs: python-security
+    needs: dependency-security
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -141,9 +169,11 @@ jobs:
         with:
           name: coverage-unit
           path: .coverage.unit
+          # A leading dot makes coverage data a hidden file.
           include-hidden-files: true
           if-no-files-found: error
 
+  # Check how backend parts work together and save coverage separately.
   integration:
     name: Integration Tests
     needs: unit
@@ -170,6 +200,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+  # Combine coverage from both test jobs into one backend report.
   coverage:
     name: Coverage Report
     needs: [unit, integration]
@@ -195,5 +226,6 @@ jobs:
           test -f coverage-data/.coverage.unit
           test -f coverage-data/.coverage.integration
           python -m coverage combine coverage-data
+          # Publish the report even when coverage falls below 90% and fails the job.
           python -m coverage report --show-missing --precision=2 --fail-under=90 \
             --format=markdown >> "$GITHUB_STEP_SUMMARY"

@@ -7,5 +7,5 @@ uvicorn==0.54.0
 # Testing and code quality
 coverage==7.17.2
 httpx2==2.15.1
-pytest==8.4.2
+pytest==9.0.3
 ruff==0.14.3
