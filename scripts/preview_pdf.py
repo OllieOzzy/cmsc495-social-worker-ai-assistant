@@ -1,5 +1,6 @@
 """Render a synthetic DAP report and open it for a local preview."""
 
+import argparse
 import sys
 import webbrowser
 from pathlib import Path
@@ -18,14 +19,27 @@ from documentation_assistant.backend.schemas.reports import (
 
 def main() -> None:
     """Write the sample PDF to a temporary directory and open it."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--long", action="store_true", help="Preview overflow in all three DAP sections"
+    )
+    args = parser.parse_args()
+    sections = DraftSections(
+        data="The student practiced asking for help.",
+        assessment="The student completed the second attempt independently.",
+        plan="Check in after science on Friday.",
+    )
+    if args.long:
+        sections = DraftSections(
+            **{
+                field: "\n".join(f"{number}. {text}" for number in range(1, 49))
+                for field, text in sections.model_dump().items()
+            }
+        )
     report = StoredReportDraft(
         report_id=uuid4(),
         notes="Synthetic notes for testing.",
-        sections=DraftSections(
-            data="The student practiced asking for help.",
-            assessment="The student completed the second attempt independently.",
-            plan="Check in after science on Friday.",
-        ),
+        sections=sections,
     )
     output = Path(mkdtemp(prefix="dap-preview-")) / "dap-preview.pdf"
     output.write_bytes(render_report_pdf(report))
