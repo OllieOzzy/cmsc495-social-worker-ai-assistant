@@ -125,13 +125,39 @@ def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:
         return _get_report(connection, report_id)
 
 
+def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
+    """Delete only the current revision of a draft."""
+    with connect(path) as connection:
+        # Check the status and revision in the same statement that deletes the row.
+        deleted = connection.execute(
+            "DELETE FROM report_drafts "
+            "WHERE report_id = ? AND revision = ? AND status = 'draft'",
+            (str(report_id), revision),
+        )
+        if deleted.rowcount == 1:
+            return True
+
+        saved = connection.execute(
+            "SELECT status FROM report_drafts WHERE report_id = ?", (str(report_id),)
+        ).fetchone()
+        if saved is None:
+            return False
+        if saved[0] == "approved":
+            raise ReviewConflict("Approved reports cannot be deleted.")
+        raise ReviewConflict("Report changed. Reload the current revision.")
+
+
 def edit_draft(
-    path: Path, report_id: UUID, edit: EditReportRequest
+    path: Path, report_id: UUID, edit: EditReportRequest, *, ai_assisted: bool = False
 ) -> StoredReportDraft | None:
-    """Save edited sections and report details on the current draft revision."""
+    """Save changes on the current draft revision in one write."""
     changes = edit.sections.model_dump() if edit.sections is not None else {}
+    if edit.notes is not None:
+        changes["notes"] = edit.notes
     if edit.metadata is not None:
         changes.update(edit.metadata.model_dump(mode="json", exclude_unset=True))
+    if ai_assisted:
+        changes["draft_source"] = "ai_assisted"
 
     # Column names come from the schemas. Bind user-entered values separately.
     return _update_review(
@@ -156,6 +182,29 @@ def approve_draft(
         (approved_by,),
         require_complete=True,
     )
+
+
+def reopen_approved_report(
+    path: Path, report_id: UUID, revision: int
+) -> StoredReportDraft | None:
+    """Return the current approved revision to draft for editing."""
+    with connect(path) as connection:
+        # Check the status and revision in the same statement that reopens the report.
+        updated = connection.execute(
+            """
+            UPDATE report_drafts
+            SET status = 'draft', revision = revision + 1,
+                approved_at = NULL, approved_by = NULL
+            WHERE report_id = ? AND revision = ? AND status = 'approved'
+            """,
+            (str(report_id), revision),
+        )
+        report = _get_report(connection, report_id)
+        if updated.rowcount == 0 and report is not None:
+            if report.status != "approved":
+                raise ReviewConflict("Only approved reports can be reopened.")
+            raise ReviewConflict("Report changed. Reload the current revision.")
+        return report
 
 
 def _update_review(

@@ -3,17 +3,21 @@
 from documentation_assistant.backend.db.drafts import (
     ReviewConflict,
     approve_draft,
+    delete_draft,
     edit_draft,
     get_draft,
     list_drafts,
+    reopen_approved_report,
     save_draft,
 )
 
 __all__ = [
     "ReviewConflict",
     "approve_draft",
+    "delete_draft",
     "edit_draft",
     "get_draft",
     "list_drafts",
+    "reopen_approved_report",
     "save_draft",
 ]

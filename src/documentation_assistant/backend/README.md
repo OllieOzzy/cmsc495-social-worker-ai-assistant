@@ -52,8 +52,11 @@ Change `--port` if another application is using port 8000.
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
 | `GET /reports/{report_id}` | Retrieves a saved report, its source notes, and its review state. |
-| `PATCH /reports/{report_id}` | Saves corrected DAP sections or report details on a draft. |
+| `PATCH /reports/{report_id}` | Saves corrected source notes, DAP sections, or report details on a draft. |
+| `POST /reports/{report_id}/regenerate` | Saves corrected notes and new AI-generated DAP sections on the same draft. |
+| `DELETE /reports/{report_id}?revision=1` | Permanently deletes the specified draft revision. |
 | `POST /reports/{report_id}/approve` | Approves the saved revision and makes it read-only. |
+| `POST /reports/{report_id}/reopen` | Returns the approved revision to draft for corrections. |
 
 The health endpoint returns:
 
@@ -119,7 +122,8 @@ partial, case-insensitive match.
 ## Review and Approve
 
 Open the report by ID to get its current `revision`. To save changes, send
-that revision and DAP `sections`, `metadata`, or both to `PATCH /reports/{report_id}`.
+that revision with any changes to `notes`, `sections`, or `metadata` to
+`PATCH /reports/{report_id}`. Omit `sections` to keep the saved DAP text.
 Include all three DAP fields when replacing `sections`. Within `metadata`,
 include only the fields to change. Use `null` to clear an optional detail.
 The response contains the new revision and the source notes. The report stays
@@ -133,6 +137,39 @@ and the reviewer's name to `POST /reports/{report_id}/approve`.
 Approval records the supplied name and a UTC `approved_at` timestamp. An approved report or a
 stale revision returns `409` on a review action. Reload the report before
 trying again. Editing and approval work with Ollama stopped.
+
+## Regenerate From Corrected Notes
+
+Call `POST /reports/{report_id}/regenerate` with the current draft revision
+and the corrected notes. Include optional metadata changes in the same request.
+
+```json
+{"revision": 2, "notes": "The student practiced paced breathing."}
+```
+
+A successful response returns the full draft with the same report ID, the
+corrected notes, replacement DAP sections, and an incremented revision.
+Ollama errors leave the saved draft intact. Keep the user's corrected notes
+in the form so they can retry. A stale revision or an approved report returns
+`409`. Reload the report before retrying a stale edit.
+
+## Reopen an Approved Report
+
+After confirmation, call `POST /reports/{report_id}/reopen` with the revision
+shown on screen, such as `{"revision": 3}`. The response keeps the same report
+ID and saved content, increases the revision, and sets the status to `draft`.
+The approver name and approval timestamp are cleared. Review and approve the
+report again after editing it. Reopening works with Ollama stopped.
+
+An unknown report returns `404`. A report already in draft or a stale
+revision returns `409`.
+
+## Delete a Draft
+
+After the user confirms deletion, call `DELETE /reports/{report_id}?revision=1`
+with the revision shown on screen. A successful deletion returns `204` with
+an empty body. An approved report or a stale revision returns `409`. A missing
+report returns `404`. Deletion works with Ollama stopped.
 
 ## Tests
 

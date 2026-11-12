@@ -166,6 +166,32 @@ def test_manual_draft_can_start_without_notes(app, payload):
         assert client.get(f"/reports/{draft['report_id']}").json() == draft
 
 
+def test_delete_draft_requires_the_current_revision(app):
+    """Delete a saved draft only after the caller confirms its current revision."""
+    with TestClient(app) as client:
+        created = client.post("/reports/manual", json={})
+        assert created.status_code == 201
+        draft = created.json()
+        path = f"/reports/{draft['report_id']}"
+        assert client.delete(path).status_code == 422
+
+        edited = client.patch(
+            path, json={"revision": draft["revision"], "metadata": {"grade": "8"}}
+        )
+        assert edited.status_code == 200
+        stale = client.delete(path, params={"revision": draft["revision"]})
+        assert stale.status_code == 409
+        assert client.get(path).json() == edited.json()
+
+        params = {"revision": edited.json()["revision"]}
+        deleted = client.delete(path, params=params)
+        assert deleted.status_code == 204
+        assert deleted.content == b""
+        assert client.get(path).status_code == 404
+        assert client.get("/reports").json() == []
+        assert client.delete(path, params=params).status_code == 404
+
+
 def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
     """Verify each report ID retrieves its own notes and generated sections."""
 
@@ -373,6 +399,9 @@ def test_review_saves_corrections_and_only_approves_the_current_revision(
             "approved_at": approved_at,
             **approver,
         }
+        delete_approved = client.delete(report_url, params={"revision": 4})
+        assert delete_approved.status_code == 409
+        assert delete_approved.json()["detail"] == "Approved reports cannot be deleted."
         assert (
             client.patch(
                 report_url, json={"revision": 4, "metadata": {"student_id": "SYN-404"}}
@@ -410,6 +439,160 @@ def test_review_saves_corrections_and_only_approves_the_current_revision(
         assert client.get(report_url).json() == approved.json()
 
 
+def test_reopen_clears_approval_and_allows_corrections(app):
+    """Reopen the current revision in place and approve it again after editing."""
+    sections = {
+        "data": NOTES,
+        "assessment": "Not documented.",
+        "plan": "Not documented.",
+    }
+    with TestClient(app) as client:
+        created = client.post(
+            "/reports/manual",
+            json={"notes": NOTES, "metadata": {"student_name": "Example Student"}},
+        )
+        assert created.status_code == 201
+        path = f"/reports/{created.json()['report_id']}"
+        saved = client.patch(path, json={"revision": 1, "sections": sections})
+        assert saved.status_code == 200
+        approval = client.post(
+            f"{path}/approve", json={"revision": 2, "approved_by": "Taylor Example"}
+        )
+        assert approval.status_code == 200
+        approved = approval.json()
+
+        stale = client.post(f"{path}/reopen", json={"revision": 2})
+        assert stale.status_code == 409
+        assert client.get(path).json() == approved
+
+        response = client.post(f"{path}/reopen", json={"revision": 3})
+        assert response.status_code == 200
+        reopened = response.json()
+        assert reopened == {
+            **approved,
+            "status": "draft",
+            "revision": 4,
+            "approved_at": None,
+            "approved_by": None,
+        }
+        assert client.get(path).json() == reopened
+        assert (
+            client.get("/reports", params={"approved_by": "Taylor Example"}).json()
+            == []
+        )
+        assert client.post(f"{path}/reopen", json={"revision": 4}).status_code == 409
+        assert (
+            client.post(f"/reports/{uuid4()}/reopen", json={"revision": 4}).status_code
+            == 404
+        )
+
+        corrected = {**sections, "data": "Corrected session summary."}
+        assert (
+            client.patch(path, json={"revision": 3, "sections": corrected}).status_code
+            == 409
+        )
+        saved_again = client.patch(path, json={"revision": 4, "sections": corrected})
+        assert saved_again.status_code == 200
+        assert saved_again.json()["revision"] == 5
+        approved_again = client.post(
+            f"{path}/approve", json={"revision": 5, "approved_by": "Jordan Example"}
+        )
+        assert approved_again.status_code == 200
+        assert approved_again.json()["revision"] == 6
+        assert approved_again.json()["approved_by"] == "Jordan Example"
+        assert approved_again.json()["sections"] == corrected
+
+
+def test_corrected_notes_and_regeneration_keep_the_same_draft(app, mock_ollama):
+    """Keep saved edits on failure and replace notes and DAP together on retry."""
+    manual_sections = {
+        "data": "Staff recorded a breathing exercise.",
+        "assessment": "Not documented.",
+        "plan": "Not documented.",
+    }
+    corrected_notes = "The student practiced paced breathing."
+    generated = {**manual_sections, "data": corrected_notes}
+    requests = []
+
+    def reply(request):
+        requests.append(json.loads(request.content)["messages"][1]["content"])
+        if len(requests) == 1:
+            raise httpx.ConnectError("Ollama is offline.", request=request)
+        return httpx.Response(
+            200, json={"done": True, "message": {"content": json.dumps(generated)}}
+        )
+
+    mock_ollama(reply)
+    with TestClient(app) as client:
+        created = client.post("/reports/manual", json={"notes": NOTES})
+        assert created.status_code == 201
+        report_id = created.json()["report_id"]
+        path = f"/reports/{report_id}"
+        saved = client.patch(path, json={"revision": 1, "sections": manual_sections})
+        assert saved.status_code == 200
+
+        correction = client.patch(
+            path, json={"revision": 2, "notes": "The student practiced breathing."}
+        )
+        assert correction.status_code == 200
+        corrected = correction.json()
+        assert corrected == {
+            **saved.json(),
+            "notes": "The student practiced breathing.",
+            "revision": 3,
+        }
+
+        payload = {"revision": 3, "notes": corrected_notes, "metadata": {"grade": "8"}}
+        regenerate = f"{path}/regenerate"
+        assert (
+            client.post(regenerate, json={**payload, "revision": 2}).status_code == 409
+        )
+        assert (
+            client.post(regenerate, json={**payload, "notes": " "}).status_code == 422
+        )
+        assert (
+            client.post(f"/reports/{uuid4()}/regenerate", json=payload).status_code
+            == 404
+        )
+        assert requests == []
+
+        assert client.post(regenerate, json=payload).status_code == 503
+        assert client.get(path).json() == corrected
+        response = client.post(regenerate, json=payload)
+        assert response.status_code == 200
+        updated = response.json()
+        assert updated == {
+            **corrected,
+            "notes": corrected_notes,
+            "sections": generated,
+            "metadata": {
+                **corrected["metadata"],
+                "grade": "8",
+                "draft_source": "ai_assisted",
+            },
+            "revision": 4,
+        }
+        assert client.get(path).json() == updated
+        assert [report["report_id"] for report in client.get("/reports").json()] == [
+            report_id
+        ]
+
+        approval = client.post(
+            f"{path}/approve", json={"revision": 4, "approved_by": "Taylor Example"}
+        )
+        assert approval.status_code == 200
+        assert (
+            client.post(regenerate, json={**payload, "revision": 5}).status_code == 409
+        )
+        assert (
+            client.patch(
+                path, json={"revision": 5, "notes": corrected_notes}
+            ).status_code
+            == 409
+        )
+        assert requests == [corrected_notes, corrected_notes]
+
+
 def test_report_filters_match_saved_metadata(app, mock_ollama):
     """Verify metadata round-trips and filters match singly and together."""
     sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
@@ -422,7 +605,7 @@ def test_report_filters_match_saved_metadata(app, mock_ollama):
 
     mock_ollama(reply)
     first = {
-        "student_name": "Éva Synthetic",
+        "student_name": "Eva Synthetic",
         "student_id": "SYN-001",
         "school": "Example Middle",
         "grade": "8",
@@ -450,7 +633,7 @@ def test_report_filters_match_saved_metadata(app, mock_ollama):
             {**first, "draft_source": "ai_assisted"}
         ).model_dump(mode="json")
         for params, expected in (
-            ({"student_name": "éVA"}, [first_id]),
+            ({"student_name": "eVA"}, [first_id]),
             ({"social_worker_name": "jORdan", "school": "Example Middle"}, [first_id]),
             ({"student_id": "SYN-002"}, [second_id]),
             ({"school": "example middle", "grade": "8"}, [second_id, first_id]),
