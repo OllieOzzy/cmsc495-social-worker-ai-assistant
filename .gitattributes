@@ -1,0 +1,2 @@
+# Preserve PDF byte offsets across checkouts.
+*.pdf binary
