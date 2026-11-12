@@ -16,6 +16,7 @@ from pydantic import (
 
 # Trim surrounding whitespace before checking whether the text is empty.
 NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+SessionNotes = Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)]
 MetadataText = Annotated[NonBlankText, StringConstraints(max_length=200)]
 ReportingText = Annotated[NonBlankText, StringConstraints(max_length=1000)]
 ReportStatus = Literal["draft", "approved"]
@@ -98,11 +99,20 @@ class ReportFilters(BaseModel):
 
 
 class GenerateReportRequest(BaseModel):
-    """Accept session notes and optional details for a new draft."""
+    """Require session notes for an AI-assisted draft."""
 
     model_config = ConfigDict(extra="forbid")
 
-    notes: Annotated[NonBlankText, StringConstraints(max_length=4000)]
+    notes: Annotated[SessionNotes, StringConstraints(min_length=1)]
+    metadata: ReportMetadata | None = None
+
+
+class ManualReportRequest(BaseModel):
+    """Accept optional notes and details for a handwritten draft."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    notes: SessionNotes = ""
     metadata: ReportMetadata | None = None
 
 
@@ -141,7 +151,7 @@ class ReportDraft(ReportContent):
 class StoredReportDraft(ReportContent):
     """Return the saved report, source notes, and review state."""
 
-    notes: NonBlankText
+    notes: Annotated[str, StringConstraints(strip_whitespace=True)]
     metadata: SavedReportMetadata | None = None
     status: ReportStatus = "draft"
     revision: ReportRevision = 1

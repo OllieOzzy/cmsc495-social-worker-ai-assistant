@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from documentation_assistant.backend.db import (
@@ -15,6 +15,7 @@ from documentation_assistant.backend.db import (
     list_drafts,
     save_draft,
 )
+from documentation_assistant.backend.export.pdf import render_report_pdf
 from documentation_assistant.backend.llm.ollama import (
     InvalidModelResponse,
     generate_dap,
@@ -24,6 +25,7 @@ from documentation_assistant.backend.schemas.reports import (
     DraftSections,
     EditReportRequest,
     GenerateReportRequest,
+    ManualReportRequest,
     ReportDraft,
     ReportFilters,
     ReportMetadata,
@@ -36,9 +38,9 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 
 @router.post("/manual", response_model=StoredReportDraft, status_code=201)
 def create_manual_report(
-    payload: GenerateReportRequest, request: Request
+    payload: ManualReportRequest, request: Request
 ) -> StoredReportDraft:
-    """Save session notes with empty DAP sections for manual writing."""
+    """Start a manual draft with optional notes and empty DAP sections."""
     metadata = (payload.metadata or ReportMetadata()).model_copy(
         update={"draft_source": "handwritten"}
     )
