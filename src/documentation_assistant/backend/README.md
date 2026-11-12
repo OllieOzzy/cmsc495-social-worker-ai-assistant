@@ -49,7 +49,7 @@ Change `--port` if another application is using port 8000.
 | [GET /docs](http://127.0.0.1:8000/docs) | Interactive API documentation. |
 | [GET /openapi.json](http://127.0.0.1:8000/openapi.json) | Machine-readable API schema. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
-| `POST /reports/manual` | Saves source notes and opens a draft with blank DAP sections. |
+| `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
 | `GET /reports/{report_id}` | Retrieves a saved report, its source notes, and its review state. |
 | `PATCH /reports/{report_id}` | Saves corrected DAP sections or report details on a draft. |
@@ -65,9 +65,9 @@ This checks API liveness and works independently of Ollama.
 
 ## Start a Draft
 
-For manual writing, send the notes and optional metadata to
-`POST /reports/manual`. The response contains the saved notes and blank
-DAP sections. You can save a draft while sections are still blank and
+For manual writing, send optional notes and metadata to
+`POST /reports/manual`. Use `{}` to start an empty report. The response contains
+the saved notes and blank DAP sections. You can save a draft while sections are still blank and
 approve it after all three contain text. This workflow works with Ollama
 stopped.
 

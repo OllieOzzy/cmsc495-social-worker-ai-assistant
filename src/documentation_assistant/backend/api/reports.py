@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from documentation_assistant.backend.db import (
@@ -15,7 +15,6 @@ from documentation_assistant.backend.db import (
     list_drafts,
     save_draft,
 )
-from documentation_assistant.backend.export.pdf import render_report_pdf
 from documentation_assistant.backend.llm.ollama import (
     InvalidModelResponse,
     generate_dap,

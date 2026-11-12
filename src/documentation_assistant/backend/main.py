@@ -14,8 +14,8 @@ def create_app() -> FastAPI:
     application = FastAPI(
         title="Social Worker Documentation Assistant API",
         description=(
-            "The API supports a school social work documentation workflow, from "
-            "session notes through an approved PDF based on the school DAP template."
+            "The API supports creating, reviewing, and approving DAP session notes "
+            "for school social work."
         ),
         version="0.1.0",
     )
