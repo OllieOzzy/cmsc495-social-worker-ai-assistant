@@ -1,5 +1,6 @@
-"""Render the saved DAP sections on the school's PDF template."""
+"""Render saved reports on the school's DAP PDF template."""
 
+from datetime import date
 from html import escape
 from io import BytesIO
 from pathlib import Path
@@ -11,7 +12,10 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import Paragraph
 
-from documentation_assistant.backend.schemas.reports import StoredReportDraft
+from documentation_assistant.backend.schemas.reports import (
+    SavedReportMetadata,
+    StoredReportDraft,
+)
 
 _TEMPLATE = (
     Path(__file__).resolve().parents[4]
@@ -23,32 +27,18 @@ _TEXT_WIDTH = 514
 _CONTINUATION_TOP = 76
 _CONTINUATION_BOTTOM = 720
 _HEADING_SPACE = 24
-_DAP_STYLE = ParagraphStyle(
-    "DAP text", fontSize=10, leading=13, allowOrphans=1, allowWidows=1
+_FIELD_STYLE = ParagraphStyle(
+    "Form field", fontSize=8.5, leading=10, allowOrphans=1, allowWidows=1
 )
+_DAP_STYLE = ParagraphStyle("DAP text", parent=_FIELD_STYLE, fontSize=10, leading=13)
 
 
 def render_report_pdf(report: StoredReportDraft) -> bytes:
-    """Return the school form and any pages needed for its saved DAP text."""
+    """Return the school form and continuation pages for the saved report."""
     overlay = BytesIO()
     canvas = Canvas(overlay, pagesize=letter)
     is_draft = report.status == "draft"
-    overflow = []
-
-    # The box positions are measured from the top of the letter-size template.
-    for label, text, top, height in (
-        ("Data", report.sections.data, 219, 105),
-        ("Assessment", report.sections.assessment, 359, 72),
-        ("Plan", report.sections.plan, 467, 62),
-    ):
-        if not text:
-            continue
-        markup = "<br/>".join(escape(line) for line in text.splitlines())
-        paragraph = Paragraph(markup, _DAP_STYLE)
-        remaining, _ = _draw_paragraph(canvas, paragraph, top, height)
-        if remaining is not None:
-            overflow.append((label, remaining))
-
+    overflow = _draw_form(canvas, report)
     _draw_page_labels(canvas, 1, is_draft)
     _draw_continuations(canvas, overflow, is_draft)
     canvas.save()
@@ -64,16 +54,88 @@ def render_report_pdf(report: StoredReportDraft) -> bytes:
     return output.getvalue()
 
 
+def _draw_form(
+    canvas: Canvas, report: StoredReportDraft
+) -> list[tuple[str, Paragraph]]:
+    """Place saved values in the matching form boxes."""
+    metadata = report.metadata or SavedReportMetadata()
+    overflow: list[tuple[str, Paragraph]] = []
+
+    def field(
+        label: str,
+        value: str | date | int | None,
+        box: tuple[float, float, float, float],
+        style: ParagraphStyle = _FIELD_STYLE,
+    ) -> None:
+        """Draw a value in its box and carry excess text onto a continuation page."""
+        if value is None or value == "":
+            return
+        markup = "<br/>".join(escape(line) for line in str(value).splitlines())
+        remaining, _ = _draw_paragraph(canvas, Paragraph(markup, style), *box)
+        if remaining is not None:
+            overflow.append((label, remaining))
+
+    # Boxes use (left, top, width, height), measured from the template's top left.
+    student = " / ".join(filter(None, (metadata.student_name, metadata.student_id)))
+    field("Student name / ID", student, (143, 79, 157, 14))
+    field("Grade", metadata.grade, (413, 79, 149, 14))
+    field("School", metadata.school, (143, 99, 157, 14))
+    field("Date of service", metadata.date_of_service, (413, 99, 149, 14))
+    if metadata.start_time or metadata.end_time:
+        start = metadata.start_time.strftime("%H:%M") if metadata.start_time else ""
+        end = metadata.end_time.strftime("%H:%M") if metadata.end_time else ""
+        field("Start / end time", f"{start} / {end}", (143, 119, 157, 14))
+    field("Total minutes", metadata.total_minutes, (413, 119, 149, 14))
+    field(
+        "IEP/504 goal addressed", metadata.iep_504_goal_addressed, (413, 157, 149, 26)
+    )
+
+    field("Data", report.sections.data, (_TEXT_LEFT, 219, _TEXT_WIDTH, 105), _DAP_STYLE)
+    field(
+        "Assessment",
+        report.sections.assessment,
+        (_TEXT_LEFT, 359, _TEXT_WIDTH, 72),
+        _DAP_STYLE,
+    )
+    field("Plan", report.sections.plan, (_TEXT_LEFT, 467, _TEXT_WIDTH, 62), _DAP_STYLE)
+
+    # Draw an x within the template's printed brackets for each selected option.
+    canvas.setFont("Helvetica", 5.5)
+    for selection, positions, baseline in (
+        (
+            metadata.session_type,
+            {"individual": 142.8, "group": 195.25, "family": 235.41},
+            147,
+        ),
+        (metadata.setting, {"in_person": 412.8, "virtual": 464.78}, 147),
+        (
+            metadata.service_basis,
+            {"iep": 142.8, "504": 173.04, "general_referral": 203.76},
+            173,
+        ),
+    ):
+        if selection is not None:
+            canvas.drawCentredString(
+                positions[selection] + 3.55, _PAGE_HEIGHT - baseline + 1, "x"
+            )
+    return overflow
+
+
 def _draw_paragraph(
-    canvas: Canvas, paragraph: Paragraph, top: float, height: float
+    canvas: Canvas,
+    paragraph: Paragraph,
+    left: float,
+    top: float,
+    width: float,
+    height: float,
 ) -> tuple[Paragraph | None, float]:
     """Draw the lines that fit and return the remainder and height used."""
-    _, used_height = paragraph.wrap(_TEXT_WIDTH, height)
+    _, used_height = paragraph.wrap(width, height)
     remaining = None
     if used_height > height:
-        paragraph, remaining = paragraph.split(_TEXT_WIDTH, height)
-        _, used_height = paragraph.wrap(_TEXT_WIDTH, height)
-    paragraph.drawOn(canvas, _TEXT_LEFT, _PAGE_HEIGHT - top - used_height)
+        paragraph, remaining = paragraph.split(width, height)
+        _, used_height = paragraph.wrap(width, height)
+    paragraph.drawOn(canvas, left, _PAGE_HEIGHT - top - used_height)
     return remaining, used_height
 
 
@@ -109,7 +171,12 @@ def _draw_continuations(
 
             text_top = top + _HEADING_SPACE
             remaining, used_height = _draw_paragraph(
-                canvas, remaining, text_top, _CONTINUATION_BOTTOM - text_top
+                canvas,
+                remaining,
+                _TEXT_LEFT,
+                text_top,
+                _TEXT_WIDTH,
+                _CONTINUATION_BOTTOM - text_top,
             )
             # A split section continues on a new page. The next section can share
             # this page if its heading and at least one line fit below.
