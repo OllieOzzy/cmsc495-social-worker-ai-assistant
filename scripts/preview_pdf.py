@@ -54,6 +54,10 @@ def main() -> None:
             setting="in_person",
             service_basis="iep",
             iep_504_goal_addressed="Practice asking for help during class.",
+            safety_concern="yes",
+            safety_concern_description="Student reported feeling unsafe in the hallway.",
+            mandated_report_details="Sample Agency, 2026-11-12, report SYN-001.",
+            supervisor_notification="Sample supervisor notified after the session.",
         ),
     )
     output = Path(mkdtemp(prefix="dap-preview-")) / "dap-preview.pdf"
