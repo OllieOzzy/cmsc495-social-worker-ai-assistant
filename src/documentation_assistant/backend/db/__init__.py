@@ -7,6 +7,7 @@ from documentation_assistant.backend.db.drafts import (
     edit_draft,
     get_draft,
     list_drafts,
+    reopen_approved_report,
     save_draft,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "edit_draft",
     "get_draft",
     "list_drafts",
+    "reopen_approved_report",
     "save_draft",
 ]

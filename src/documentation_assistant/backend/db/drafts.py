@@ -180,6 +180,29 @@ def approve_draft(
     )
 
 
+def reopen_approved_report(
+    path: Path, report_id: UUID, revision: int
+) -> StoredReportDraft | None:
+    """Return the current approved revision to draft for editing."""
+    with connect(path) as connection:
+        # Check the status and revision in the same statement that reopens the report.
+        updated = connection.execute(
+            """
+            UPDATE report_drafts
+            SET status = 'draft', revision = revision + 1,
+                approved_at = NULL, approved_by = NULL
+            WHERE report_id = ? AND revision = ? AND status = 'approved'
+            """,
+            (str(report_id), revision),
+        )
+        report = _get_report(connection, report_id)
+        if updated.rowcount == 0 and report is not None:
+            if report.status != "approved":
+                raise ReviewConflict("Only approved reports can be reopened.")
+            raise ReviewConflict("Report changed. Reload the current revision.")
+        return report
+
+
 def _update_review(
     path: Path,
     report_id: UUID,
