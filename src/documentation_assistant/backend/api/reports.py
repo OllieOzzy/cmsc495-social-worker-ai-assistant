@@ -4,12 +4,13 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from documentation_assistant.backend.db import (
     ReviewConflict,
     approve_draft,
+    delete_draft,
     edit_draft,
     get_draft,
     list_drafts,
@@ -120,6 +121,22 @@ def edit_report(
     if report is None:
         raise HTTPException(404, "Report draft not found.")
     return report
+
+
+@router.delete("/{report_id}", status_code=204, response_class=Response)
+def delete_report(
+    report_id: UUID,
+    revision: Annotated[int, Query(ge=1, le=2**63 - 1)],
+    request: Request,
+) -> Response:
+    """Permanently delete the saved draft revision the user confirmed."""
+    try:
+        deleted = delete_draft(request.app.state.database_path, report_id, revision)
+    except ReviewConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(404, "Report draft not found.")
+    return Response(status_code=204)
 
 
 @router.post("/{report_id}/approve", response_model=StoredReportDraft)
