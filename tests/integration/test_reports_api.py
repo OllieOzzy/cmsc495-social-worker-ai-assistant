@@ -503,6 +503,96 @@ def test_reopen_clears_approval_and_allows_corrections(app):
         assert approved_again.json()["sections"] == corrected
 
 
+def test_corrected_notes_and_regeneration_keep_the_same_draft(app, mock_ollama):
+    """Keep saved edits on failure and replace notes and DAP together on retry."""
+    manual_sections = {
+        "data": "Staff recorded a breathing exercise.",
+        "assessment": "Not documented.",
+        "plan": "Not documented.",
+    }
+    corrected_notes = "The student practiced paced breathing."
+    generated = {**manual_sections, "data": corrected_notes}
+    requests = []
+
+    def reply(request):
+        requests.append(json.loads(request.content)["messages"][1]["content"])
+        if len(requests) == 1:
+            raise httpx.ConnectError("Ollama is offline.", request=request)
+        return httpx.Response(
+            200, json={"done": True, "message": {"content": json.dumps(generated)}}
+        )
+
+    mock_ollama(reply)
+    with TestClient(app) as client:
+        created = client.post("/reports/manual", json={"notes": NOTES})
+        assert created.status_code == 201
+        report_id = created.json()["report_id"]
+        path = f"/reports/{report_id}"
+        saved = client.patch(path, json={"revision": 1, "sections": manual_sections})
+        assert saved.status_code == 200
+
+        correction = client.patch(
+            path, json={"revision": 2, "notes": "The student practiced breathing."}
+        )
+        assert correction.status_code == 200
+        corrected = correction.json()
+        assert corrected == {
+            **saved.json(),
+            "notes": "The student practiced breathing.",
+            "revision": 3,
+        }
+
+        payload = {"revision": 3, "notes": corrected_notes, "metadata": {"grade": "8"}}
+        regenerate = f"{path}/regenerate"
+        assert (
+            client.post(regenerate, json={**payload, "revision": 2}).status_code == 409
+        )
+        assert (
+            client.post(regenerate, json={**payload, "notes": " "}).status_code == 422
+        )
+        assert (
+            client.post(f"/reports/{uuid4()}/regenerate", json=payload).status_code
+            == 404
+        )
+        assert requests == []
+
+        assert client.post(regenerate, json=payload).status_code == 503
+        assert client.get(path).json() == corrected
+        response = client.post(regenerate, json=payload)
+        assert response.status_code == 200
+        updated = response.json()
+        assert updated == {
+            **corrected,
+            "notes": corrected_notes,
+            "sections": generated,
+            "metadata": {
+                **corrected["metadata"],
+                "grade": "8",
+                "draft_source": "ai_assisted",
+            },
+            "revision": 4,
+        }
+        assert client.get(path).json() == updated
+        assert [report["report_id"] for report in client.get("/reports").json()] == [
+            report_id
+        ]
+
+        approval = client.post(
+            f"{path}/approve", json={"revision": 4, "approved_by": "Taylor Example"}
+        )
+        assert approval.status_code == 200
+        assert (
+            client.post(regenerate, json={**payload, "revision": 5}).status_code == 409
+        )
+        assert (
+            client.patch(
+                path, json={"revision": 5, "notes": corrected_notes}
+            ).status_code
+            == 409
+        )
+        assert requests == [corrected_notes, corrected_notes]
+
+
 def test_report_filters_match_saved_metadata(app, mock_ollama):
     """Verify metadata round-trips and filters match singly and together."""
     sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
