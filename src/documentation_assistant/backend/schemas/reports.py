@@ -17,6 +17,7 @@ from pydantic import (
 # Trim surrounding whitespace before checking whether the text is empty.
 NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 SessionNotes = Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000)]
+RequiredSessionNotes = Annotated[SessionNotes, StringConstraints(min_length=1)]
 MetadataText = Annotated[NonBlankText, StringConstraints(max_length=200)]
 ReportingText = Annotated[NonBlankText, StringConstraints(max_length=1000)]
 ReportStatus = Literal["draft", "approved"]
@@ -103,7 +104,7 @@ class GenerateReportRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    notes: Annotated[SessionNotes, StringConstraints(min_length=1)]
+    notes: RequiredSessionNotes
     metadata: ReportMetadata | None = None
 
 
@@ -173,27 +174,42 @@ class ApproveReportRequest(ReportRevisionRequest):
     approved_by: MetadataText
 
 
-class EditReportRequest(ReportRevisionRequest):
-    """Update DAP sections, report metadata, or both on a saved draft."""
+class DraftUpdateRequest(ReportRevisionRequest):
+    """Identify a draft revision and validate optional metadata edits."""
 
-    sections: DraftSections | None = None
     metadata: ReportMetadata | None = None
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: ReportMetadata | None) -> ReportMetadata | None:
+        """Reserve draft source changes for the generation workflow."""
+        if value is not None and "draft_source" in value.model_fields_set:
+            raise ValueError("Draft source is managed by the report workflow")
+        return value
+
+
+class EditReportRequest(DraftUpdateRequest):
+    """Update source notes, DAP sections, or report metadata on a saved draft."""
+
+    notes: SessionNotes | None = None
+    sections: DraftSections | None = None
 
     @model_validator(mode="after")
     def validate_changes(self) -> "EditReportRequest":
-        """Require sections or at least one explicitly supplied metadata field."""
+        """Require at least one field to update."""
         if (
-            self.metadata is not None
-            and "draft_source" in self.metadata.model_fields_set
+            self.notes is None
+            and self.sections is None
+            and (self.metadata is None or not self.metadata.model_fields_set)
         ):
-            raise ValueError("Draft source is set when the report is created")
-        if self.sections is None and (
-            self.metadata is None or not self.metadata.model_fields_set
-        ):
-            raise ValueError(
-                "Provide sections or at least one metadata field to update"
-            )
+            raise ValueError("Provide notes, sections, or a metadata field to update")
         return self
+
+
+class RegenerateReportRequest(DraftUpdateRequest):
+    """Generate replacement DAP sections from corrected source notes."""
+
+    notes: RequiredSessionNotes
 
 
 class ReportSummary(BaseModel):

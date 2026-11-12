@@ -148,12 +148,16 @@ def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
 
 
 def edit_draft(
-    path: Path, report_id: UUID, edit: EditReportRequest
+    path: Path, report_id: UUID, edit: EditReportRequest, *, ai_assisted: bool = False
 ) -> StoredReportDraft | None:
-    """Save edited sections and report details on the current draft revision."""
+    """Save changes on the current draft revision in one write."""
     changes = edit.sections.model_dump() if edit.sections is not None else {}
+    if edit.notes is not None:
+        changes["notes"] = edit.notes
     if edit.metadata is not None:
         changes.update(edit.metadata.model_dump(mode="json", exclude_unset=True))
+    if ai_assisted:
+        changes["draft_source"] = "ai_assisted"
 
     # Column names come from the schemas. Bind user-entered values separately.
     return _update_review(
