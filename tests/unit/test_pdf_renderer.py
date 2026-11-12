@@ -1,5 +1,6 @@
 """Check the DAP template renderer independently of the API."""
 
+import re
 from io import BytesIO
 from uuid import uuid4
 
@@ -37,13 +38,42 @@ def test_render_report_pdf_places_saved_dap_text_on_the_template():
     assert report.notes not in text
 
 
-def test_render_report_pdf_rejects_text_that_would_overflow():
-    """Reject oversized text until continuation pages are supported."""
+@pytest.mark.parametrize("status", ["draft", "approved"])
+def test_render_report_pdf_continues_all_three_sections(status):
+    """Keep overflow in section order and number every page."""
+    sections = {
+        field: "\n".join(
+            f"{field.upper()}{number:03d} The student practiced asking for help."
+            for number in range(1, 81)
+        )
+        for field in ("data", "assessment", "plan")
+    }
     report = StoredReportDraft(
         report_id=uuid4(),
         notes="",
-        sections=DraftSections(data="", assessment="", plan="Follow up. " * 200),
+        sections=DraftSections(**sections),
+        status=status,
     )
 
-    with pytest.raises(ValueError, match="Plan exceeds the space"):
-        render_report_pdf(report)
+    pdf = PdfReader(BytesIO(render_report_pdf(report)))
+    pages = [page.extract_text() for page in pdf.pages]
+    assert len(pages) > 2
+    for page_number, text in enumerate(pages, start=1):
+        assert f"Page {page_number}" in text.splitlines()
+        assert ("DRAFT" in text.splitlines()) == (status == "draft")
+        if page_number > 1:
+            assert "School Social Work Session Note (DAP) - Continuation" in text
+
+    first_page, *continuation_pages = pages
+    continuation_text = "\n".join(continuation_pages)
+    headings = []
+    for field in sections:
+        marker = field.upper()
+        assert f"{marker}001" in first_page
+        heading = f"{field.capitalize()} (continued)"
+        headings.append(continuation_text.index(heading))
+        # Check every numbered line survived the splits exactly once and in order.
+        assert re.findall(rf"\b{marker}\d{{3}}\b", "\n".join(pages)) == [
+            f"{marker}{number:03d}" for number in range(1, 81)
+        ]
+    assert headings == sorted(headings)
