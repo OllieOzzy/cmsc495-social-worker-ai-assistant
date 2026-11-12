@@ -23,10 +23,12 @@ from documentation_assistant.backend.llm.ollama import (
 )
 from documentation_assistant.backend.schemas.reports import (
     ApproveReportRequest,
+    DAPSections,
     DraftSections,
     EditReportRequest,
     GenerateReportRequest,
     ManualReportRequest,
+    RegenerateReportRequest,
     ReportDraft,
     ReportFilters,
     ReportMetadata,
@@ -59,8 +61,25 @@ async def generate_report(
     payload: GenerateReportRequest, request: Request
 ) -> ReportDraft:
     """Generate and save an unapproved DAP draft from synthetic session notes."""
+    sections = await _generate_sections(payload.notes)
+    # Run the synchronous SQLite write off the event loop.
+    metadata = (payload.metadata or ReportMetadata()).model_copy(
+        update={"draft_source": "ai_assisted"}
+    )
+    draft = await run_in_threadpool(
+        save_draft,
+        request.app.state.database_path,
+        payload.notes,
+        sections,
+        metadata,
+    )
+    return ReportDraft(report_id=draft.report_id, sections=sections)
+
+
+async def _generate_sections(notes: str) -> DAPSections:
+    """Generate validated DAP sections and translate Ollama failures to API errors."""
     try:
-        sections = await generate_dap(payload.notes)
+        return await generate_dap(notes)
     except httpx.TimeoutException as exc:
         raise HTTPException(
             504, "Ollama timed out. Try again with shorter notes."
@@ -80,18 +99,6 @@ async def generate_report(
         raise HTTPException(
             502, "Ollama returned an incomplete or invalid DAP draft."
         ) from exc
-    # Run the synchronous SQLite write off the event loop.
-    metadata = (payload.metadata or ReportMetadata()).model_copy(
-        update={"draft_source": "ai_assisted"}
-    )
-    draft = await run_in_threadpool(
-        save_draft,
-        request.app.state.database_path,
-        payload.notes,
-        sections,
-        metadata,
-    )
-    return ReportDraft(report_id=draft.report_id, sections=sections)
 
 
 @router.get("", response_model=list[ReportSummary])
@@ -115,9 +122,42 @@ def read_report(report_id: UUID, request: Request) -> StoredReportDraft:
 def edit_report(
     report_id: UUID, payload: EditReportRequest, request: Request
 ) -> StoredReportDraft:
-    """Save corrected sections or report details while keeping draft status."""
+    """Save corrected notes, sections, or report details while keeping draft status."""
     try:
         report = edit_draft(request.app.state.database_path, report_id, payload)
+    except ReviewConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if report is None:
+        raise HTTPException(404, "Report draft not found.")
+    return report
+
+
+@router.post("/{report_id}/regenerate", response_model=StoredReportDraft)
+async def regenerate_report(
+    report_id: UUID, payload: RegenerateReportRequest, request: Request
+) -> StoredReportDraft:
+    """Replace the notes and AI-generated sections on the same draft revision."""
+    path = request.app.state.database_path
+    current = await run_in_threadpool(get_draft, path, report_id)
+    if current is None:
+        raise HTTPException(404, "Report draft not found.")
+    if current.status == "approved":
+        raise HTTPException(409, "Approved reports are read-only.")
+    if current.revision != payload.revision:
+        raise HTTPException(409, "Report changed. Reload the current revision.")
+
+    sections = await _generate_sections(payload.notes)
+    edit = EditReportRequest(
+        revision=payload.revision,
+        notes=payload.notes,
+        sections=sections,
+        metadata=payload.metadata,
+    )
+    try:
+        # Recheck the revision during the write in case it changed during inference.
+        report = await run_in_threadpool(
+            edit_draft, path, report_id, edit, ai_assisted=True
+        )
     except ReviewConflict as exc:
         raise HTTPException(409, str(exc)) from exc
     if report is None:
