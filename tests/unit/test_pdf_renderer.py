@@ -77,6 +77,63 @@ def test_render_report_pdf_fills_the_session_details():
     assert text.splitlines().count("x") == 3
 
 
+@pytest.mark.parametrize(
+    ("safety_concern", "mark_left"),
+    [("no", 273.38), ("yes", 300.78), (None, None)],
+)
+def test_render_report_pdf_fills_risk_and_reporting(safety_concern, mark_left):
+    """Mark the selected safety response and print only saved reporting text."""
+    description = "Student reported feeling unsafe in the hallway."
+    report = StoredReportDraft(
+        report_id=uuid4(),
+        notes="Text from the source notes stays out of this form.",
+        sections=DraftSections(data="", assessment="", plan=""),
+        metadata=SavedReportMetadata(
+            safety_concern=safety_concern,
+            safety_concern_description=description if safety_concern == "yes" else None,
+            mandated_report_details="Sample Agency, 2026-11-12, report SYN-001.",
+            supervisor_notification="Sample supervisor notified after the session.",
+        ),
+    )
+
+    marks = []
+
+    def collect_marks(text, page_matrix, text_matrix, font, font_size):
+        if text.strip() == "x":
+            marks.append(page_matrix[4] + text_matrix[4])
+
+    pdf = PdfReader(BytesIO(render_report_pdf(report)))
+    assert len(pdf.pages) == 1
+    text = pdf.pages[0].extract_text(visitor_text=collect_marks)
+    assert ("Student reported feeling unsafe in the hallway." in text) == (
+        safety_concern == "yes"
+    )
+    assert "Sample Agency, 2026-11-12, report SYN-001." in text
+    assert "Sample supervisor notified after the session." in text
+    assert report.notes not in text
+    if mark_left is None:
+        assert marks == []
+    else:
+        assert marks == pytest.approx([mark_left], abs=0.01)
+
+
+def test_render_report_pdf_continues_long_reporting_details():
+    """Carry multiline reporting text out of the one-line form box."""
+    entries = [f"Sample reporting entry {number:02d}." for number in range(1, 12)]
+    report = StoredReportDraft(
+        report_id=uuid4(),
+        notes="",
+        sections=DraftSections(data="", assessment="", plan=""),
+        metadata=SavedReportMetadata(mandated_report_details="\n".join(entries)),
+    )
+
+    pdf = PdfReader(BytesIO(render_report_pdf(report)))
+    first, second = [page.extract_text() for page in pdf.pages]
+    assert entries[0] in first
+    assert "Mandated report details (continued)" in second
+    assert re.findall(r"Sample reporting entry \d{2}\.", first + second) == entries
+
+
 @pytest.mark.parametrize("status", ["draft", "approved"])
 def test_render_report_pdf_continues_all_three_sections(status):
     """Keep overflow in section order and number every page."""

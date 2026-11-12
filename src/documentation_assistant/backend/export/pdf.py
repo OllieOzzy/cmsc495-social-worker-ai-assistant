@@ -99,6 +99,18 @@ def _draw_form(
     )
     field("Plan", report.sections.plan, (_TEXT_LEFT, 467, _TEXT_WIDTH, 62), _DAP_STYLE)
 
+    field(
+        "Safety concern description",
+        metadata.safety_concern_description,
+        (379, 567, 175, 13),
+    )
+    field(
+        "Mandated report details", metadata.mandated_report_details, (271, 587, 283, 13)
+    )
+    field(
+        "Supervisor notification", metadata.supervisor_notification, (271, 607, 283, 13)
+    )
+
     # Draw an x within the template's printed brackets for each selected option.
     canvas.setFont("Helvetica", 5.5)
     for selection, positions, baseline in (
@@ -113,6 +125,7 @@ def _draw_form(
             {"iep": 142.8, "504": 173.04, "general_referral": 203.76},
             173,
         ),
+        (metadata.safety_concern, {"no": 271.2, "yes": 298.6}, 575.5),
     ):
         if selection is not None:
             canvas.drawCentredString(
