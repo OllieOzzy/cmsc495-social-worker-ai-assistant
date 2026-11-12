@@ -55,6 +55,7 @@ Change `--port` if another application is using port 8000.
 | `PATCH /reports/{report_id}` | Saves corrected DAP sections or report details on a draft. |
 | `DELETE /reports/{report_id}?revision=1` | Permanently deletes the specified draft revision. |
 | `POST /reports/{report_id}/approve` | Approves the saved revision and makes it read-only. |
+| `POST /reports/{report_id}/reopen` | Returns the approved revision to draft for corrections. |
 
 The health endpoint returns:
 
@@ -134,6 +135,17 @@ and the reviewer's name to `POST /reports/{report_id}/approve`.
 Approval records the supplied name and a UTC `approved_at` timestamp. An approved report or a
 stale revision returns `409` on a review action. Reload the report before
 trying again. Editing and approval work with Ollama stopped.
+
+## Reopen an Approved Report
+
+After confirmation, call `POST /reports/{report_id}/reopen` with the revision
+shown on screen, such as `{"revision": 3}`. The response keeps the same report
+ID and saved content, increases the revision, and sets the status to `draft`.
+The approver name and approval timestamp are cleared. Review and approve the
+report again after editing it. Reopening works with Ollama stopped.
+
+An unknown report returns `404`. A report already in draft or a stale
+revision returns `409`.
 
 ## Delete a Draft
 
