@@ -166,6 +166,32 @@ def test_manual_draft_can_start_without_notes(app, payload):
         assert client.get(f"/reports/{draft['report_id']}").json() == draft
 
 
+def test_delete_draft_requires_the_current_revision(app):
+    """Delete a saved draft only after the caller confirms its current revision."""
+    with TestClient(app) as client:
+        created = client.post("/reports/manual", json={})
+        assert created.status_code == 201
+        draft = created.json()
+        path = f"/reports/{draft['report_id']}"
+        assert client.delete(path).status_code == 422
+
+        edited = client.patch(
+            path, json={"revision": draft["revision"], "metadata": {"grade": "8"}}
+        )
+        assert edited.status_code == 200
+        stale = client.delete(path, params={"revision": draft["revision"]})
+        assert stale.status_code == 409
+        assert client.get(path).json() == edited.json()
+
+        params = {"revision": edited.json()["revision"]}
+        deleted = client.delete(path, params=params)
+        assert deleted.status_code == 204
+        assert deleted.content == b""
+        assert client.get(path).status_code == 404
+        assert client.get("/reports").json() == []
+        assert client.delete(path, params=params).status_code == 404
+
+
 def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
     """Verify each report ID retrieves its own notes and generated sections."""
 
@@ -373,6 +399,9 @@ def test_review_saves_corrections_and_only_approves_the_current_revision(
             "approved_at": approved_at,
             **approver,
         }
+        delete_approved = client.delete(report_url, params={"revision": 4})
+        assert delete_approved.status_code == 409
+        assert delete_approved.json()["detail"] == "Approved reports cannot be deleted."
         assert (
             client.patch(
                 report_url, json={"revision": 4, "metadata": {"student_id": "SYN-404"}}
