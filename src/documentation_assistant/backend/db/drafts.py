@@ -125,6 +125,28 @@ def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:
         return _get_report(connection, report_id)
 
 
+def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
+    """Delete only the current revision of a draft."""
+    with connect(path) as connection:
+        # Check the status and revision in the same statement that deletes the row.
+        deleted = connection.execute(
+            "DELETE FROM report_drafts "
+            "WHERE report_id = ? AND revision = ? AND status = 'draft'",
+            (str(report_id), revision),
+        )
+        if deleted.rowcount == 1:
+            return True
+
+        saved = connection.execute(
+            "SELECT status FROM report_drafts WHERE report_id = ?", (str(report_id),)
+        ).fetchone()
+        if saved is None:
+            return False
+        if saved[0] == "approved":
+            raise ReviewConflict("Approved reports cannot be deleted.")
+        raise ReviewConflict("Report changed. Reload the current revision.")
+
+
 def edit_draft(
     path: Path, report_id: UUID, edit: EditReportRequest
 ) -> StoredReportDraft | None:
