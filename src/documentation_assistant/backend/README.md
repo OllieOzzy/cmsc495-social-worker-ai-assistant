@@ -53,6 +53,7 @@ Change `--port` if another application is using port 8000.
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
 | `GET /reports/{report_id}` | Retrieves a saved report, its source notes, and its review state. |
 | `PATCH /reports/{report_id}` | Saves corrected DAP sections or report details on a draft. |
+| `DELETE /reports/{report_id}?revision=1` | Permanently deletes the specified draft revision. |
 | `POST /reports/{report_id}/approve` | Approves the saved revision and makes it read-only. |
 
 The health endpoint returns:
@@ -133,6 +134,13 @@ and the reviewer's name to `POST /reports/{report_id}/approve`.
 Approval records the supplied name and a UTC `approved_at` timestamp. An approved report or a
 stale revision returns `409` on a review action. Reload the report before
 trying again. Editing and approval work with Ollama stopped.
+
+## Delete a Draft
+
+After the user confirms deletion, call `DELETE /reports/{report_id}?revision=1`
+with the revision shown on screen. A successful deletion returns `204` with
+an empty body. An approved report or a stale revision returns `409`. A missing
+report returns `404`. Deletion works with Ollama stopped.
 
 ## Tests
 
