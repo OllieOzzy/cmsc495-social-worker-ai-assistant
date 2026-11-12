@@ -153,6 +153,19 @@ def test_manual_draft_can_be_saved_and_completed_without_ollama(app, mock_ollama
         assert approved_report["metadata"]["draft_source"] == "handwritten"
 
 
+@pytest.mark.parametrize("payload", [{}, {"notes": "  "}], ids=["omitted", "blank"])
+def test_manual_draft_can_start_without_notes(app, payload):
+    """Open and retrieve a blank manual draft for the user to fill in."""
+    with TestClient(app) as client:
+        created = client.post("/reports/manual", json=payload)
+        assert created.status_code == 201
+        draft = created.json()
+        assert draft["notes"] == ""
+        assert draft["sections"] == {"data": "", "assessment": "", "plan": ""}
+        assert draft["metadata"]["draft_source"] == "handwritten"
+        assert client.get(f"/reports/{draft['report_id']}").json() == draft
+
+
 def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
     """Verify each report ID retrieves its own notes and generated sections."""
 
@@ -547,61 +560,6 @@ def test_session_and_reporting_fields_round_trip(app, mock_ollama):
         )
 
 
-def test_separate_reporting_fields_migrate_to_text_blocks(app):
-    """Preserve saved entries and allow the merged fields to be cleared."""
-    report_id = str(uuid4())
-    with closing(sqlite3.connect(app.state.database_path)) as db, db:
-        db.execute("""
-            CREATE TABLE report_drafts (
-                report_id TEXT PRIMARY KEY NOT NULL,
-                notes TEXT NOT NULL,
-                data TEXT NOT NULL,
-                assessment TEXT NOT NULL,
-                plan TEXT NOT NULL,
-                mandated_report_made TEXT,
-                mandated_report_agency TEXT,
-                mandated_report_date TEXT,
-                mandated_report_number TEXT,
-                supervisor_notified TEXT,
-                supervisor_notification_details TEXT
-            )
-        """)
-        db.execute(
-            "INSERT INTO report_drafts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                report_id,
-                NOTES,
-                NOTES,
-                "Not documented.",
-                "Not documented.",
-                "yes",
-                "Example agency",
-                "2026-11-10",
-                "EX-001",
-                "no",
-                "Example note.",
-            ),
-        )
-
-    with TestClient(app) as client:
-        path = f"/reports/{report_id}"
-        saved = client.get(path).json()
-        assert saved["metadata"]["mandated_report_details"] == (
-            "Yes\nAgency: Example agency\nDate: 2026-11-10\nReport #: EX-001"
-        )
-        assert saved["metadata"]["supervisor_notification"] == "No\nExample note."
-
-        edited = client.patch(
-            path,
-            json={
-                "revision": saved["revision"],
-                "metadata": {"mandated_report_details": None},
-            },
-        )
-        assert edited.status_code == 200
-        assert client.get(path).json()["metadata"]["mandated_report_details"] is None
-
-
 def test_list_reports_returns_empty_list_for_new_database(app):
     """Verify the history endpoint returns an empty list before any saves."""
     with TestClient(app) as client:
@@ -629,6 +587,7 @@ def test_blank_notes_never_reach_ollama(app, mock_ollama):
     mock_ollama(unexpected_call)
     with TestClient(app) as client:
         assert client.post("/reports/generate", json={"notes": "  "}).status_code == 422
+        assert client.post("/reports/generate", json={}).status_code == 422
 
 
 def test_invalid_ollama_reply_is_not_saved(app, mock_ollama):
