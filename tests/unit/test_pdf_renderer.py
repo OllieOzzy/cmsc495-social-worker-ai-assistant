@@ -1,7 +1,7 @@
 """Check the DAP template renderer independently of the API."""
 
 import re
-from datetime import date, time
+from datetime import UTC, date, datetime, time
 from io import BytesIO
 from uuid import uuid4
 
@@ -132,6 +132,40 @@ def test_render_report_pdf_continues_long_reporting_details():
     assert entries[0] in first
     assert "Mandated report details (continued)" in second
     assert re.findall(r"Sample reporting entry \d{2}\.", first + second) == entries
+
+
+@pytest.mark.parametrize(
+    ("status", "draft_source", "mark_count"),
+    [("draft", "handwritten", 1), ("approved", "ai_assisted", 2)],
+)
+def test_render_report_pdf_fills_worker_and_review_block(
+    status, draft_source, mark_count
+):
+    """Print worker details and show the reviewer and date only when approved."""
+    report = StoredReportDraft(
+        report_id=uuid4(),
+        notes="",
+        sections=DraftSections(data="", assessment="", plan=""),
+        metadata=SavedReportMetadata(
+            social_worker_name="Jordan Example",
+            social_worker_credential="LCSW-C",
+            draft_source=draft_source,
+        ),
+        status=status,
+        approved_by="Taylor Example",
+        approved_at=datetime(2026, 11, 12, 14, 35, tzinfo=UTC),
+    )
+
+    pdf = PdfReader(BytesIO(render_report_pdf(report)))
+    assert len(pdf.pages) == 1
+    text = pdf.pages[0].extract_text()
+    assert "Jordan Example" in text
+    assert "LCSW-C" in text
+    assert sum(line.strip() == "x" for line in text.splitlines()) == mark_count
+    assert ("Taylor Example" in text) == (status == "approved")
+    assert ("2026-11-12" in text) == (status == "approved")
+    assert "Approved by" not in text
+    assert "14:35" not in text
 
 
 @pytest.mark.parametrize("status", ["draft", "approved"])

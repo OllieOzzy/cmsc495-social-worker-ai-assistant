@@ -31,6 +31,9 @@ _FIELD_STYLE = ParagraphStyle(
     "Form field", fontSize=8.5, leading=10, allowOrphans=1, allowWidows=1
 )
 _DAP_STYLE = ParagraphStyle("DAP text", parent=_FIELD_STYLE, fontSize=10, leading=13)
+_APPROVAL_STYLE = ParagraphStyle(
+    "Approval details", parent=_FIELD_STYLE, fontSize=8, leading=8
+)
 
 
 def render_report_pdf(report: StoredReportDraft) -> bytes:
@@ -111,8 +114,23 @@ def _draw_form(
         "Supervisor notification", metadata.supervisor_notification, (271, 607, 283, 13)
     )
 
-    # Draw an x within the template's printed brackets for each selected option.
-    canvas.setFont("Helvetica", 5.5)
+    worker = "\n".join(
+        filter(None, (metadata.social_worker_name, metadata.social_worker_credential))
+    )
+    field("Social worker name / credential", worker, (164, 638, 136, 27))
+
+    # Leave the signature box blank for signing on paper.
+    if report.status == "approved":
+        field("Reviewer name", report.approved_by, (449, 674, 113, 8), _APPROVAL_STYLE)
+        if report.approved_at is not None:
+            field(
+                "Approval date",
+                report.approved_at.date(),
+                (449, 685, 113, 8),
+                _APPROVAL_STYLE,
+            )
+        _mark_checkbox(canvas, 412.8, 691.5)
+
     for selection, positions, baseline in (
         (
             metadata.session_type,
@@ -126,12 +144,17 @@ def _draw_form(
             173,
         ),
         (metadata.safety_concern, {"no": 271.2, "yes": 298.6}, 575.5),
+        (metadata.draft_source, {"handwritten": 164.4, "ai_assisted": 240.47}, 680.5),
     ):
         if selection is not None:
-            canvas.drawCentredString(
-                positions[selection] + 3.55, _PAGE_HEIGHT - baseline + 1, "x"
-            )
+            _mark_checkbox(canvas, positions[selection], baseline)
     return overflow
+
+
+def _mark_checkbox(canvas: Canvas, left: float, baseline: float) -> None:
+    """Center an x within the template's printed brackets."""
+    canvas.setFont("Helvetica", 5.5)
+    canvas.drawCentredString(left + 3.55, _PAGE_HEIGHT - baseline + 1, "x")
 
 
 def _draw_paragraph(
