@@ -14,6 +14,7 @@ from documentation_assistant.backend.db import (
     edit_draft,
     get_draft,
     list_drafts,
+    reopen_approved_report,
     save_draft,
 )
 from documentation_assistant.backend.llm.ollama import (
@@ -29,6 +30,7 @@ from documentation_assistant.backend.schemas.reports import (
     ReportDraft,
     ReportFilters,
     ReportMetadata,
+    ReportRevisionRequest,
     ReportSummary,
     StoredReportDraft,
 )
@@ -150,6 +152,22 @@ def approve_report(
             report_id,
             payload.revision,
             payload.approved_by,
+        )
+    except ReviewConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if report is None:
+        raise HTTPException(404, "Report draft not found.")
+    return report
+
+
+@router.post("/{report_id}/reopen", response_model=StoredReportDraft)
+def reopen_report(
+    report_id: UUID, payload: ReportRevisionRequest, request: Request
+) -> StoredReportDraft:
+    """Reopen an approved report for corrections."""
+    try:
+        report = reopen_approved_report(
+            request.app.state.database_path, report_id, payload.revision
         )
     except ReviewConflict as exc:
         raise HTTPException(409, str(exc)) from exc
