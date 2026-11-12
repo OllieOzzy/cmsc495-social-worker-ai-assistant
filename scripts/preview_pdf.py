@@ -3,6 +3,7 @@
 import argparse
 import sys
 import webbrowser
+from datetime import date, time
 from pathlib import Path
 from tempfile import mkdtemp
 from uuid import uuid4
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from documentation_assistant.backend.export.pdf import render_report_pdf
 from documentation_assistant.backend.schemas.reports import (
     DraftSections,
+    SavedReportMetadata,
     StoredReportDraft,
 )
 
@@ -40,6 +42,19 @@ def main() -> None:
         report_id=uuid4(),
         notes="Synthetic notes for testing.",
         sections=sections,
+        metadata=SavedReportMetadata(
+            student_name="Alex Example",
+            student_id="SYN-001",
+            grade="8",
+            school="Example Middle School",
+            date_of_service=date(2026, 11, 12),
+            start_time=time(9, 5),
+            end_time=time(9, 30),
+            session_type="individual",
+            setting="in_person",
+            service_basis="iep",
+            iep_504_goal_addressed="Practice asking for help during class.",
+        ),
     )
     output = Path(mkdtemp(prefix="dap-preview-")) / "dap-preview.pdf"
     output.write_bytes(render_report_pdf(report))
