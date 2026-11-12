@@ -52,6 +52,7 @@ Change `--port` if another application is using port 8000.
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
 | `GET /reports/{report_id}` | Retrieves a saved report, its source notes, and its review state. |
+| `GET /reports/{report_id}/download` | Downloads the current saved draft or approved report as a PDF. |
 | `PATCH /reports/{report_id}` | Saves corrected source notes, DAP sections, or report details on a draft. |
 | `POST /reports/{report_id}/regenerate` | Saves corrected notes and new AI-generated DAP sections on the same draft. |
 | `DELETE /reports/{report_id}?revision=1` | Permanently deletes the specified draft revision. |
@@ -170,6 +171,18 @@ After the user confirms deletion, call `DELETE /reports/{report_id}?revision=1`
 with the revision shown on screen. A successful deletion returns `204` with
 an empty body. An approved report or a stale revision returns `409`. A missing
 report returns `404`. Deletion works with Ollama stopped.
+
+## Download a PDF
+
+In `/docs`, open **GET /reports/{report_id}/download**, select **Try it out**,
+and submit the UUID of a saved report. A successful response contains PDF
+bytes with `Content-Type: application/pdf` and a filename in
+`Content-Disposition`.
+
+Drafts have a `-draft.pdf` filename suffix and **DRAFT** on every page.
+Approved PDFs show the saved reviewer name and date. The export uses the
+current saved report, so save any pending edits before downloading.
+A missing report returns `404`. Downloading works with Ollama stopped.
 
 ## Tests
 
