@@ -28,6 +28,7 @@ from documentation_assistant.backend.schemas.reports import (
     DraftSections,
     EditReportRequest,
     GenerateReportRequest,
+    InvalidSessionTimeRange,
     ManualReportRequest,
     RegenerateReportRequest,
     ReportDraft,
@@ -94,6 +95,7 @@ def create_manual_report(
     metadata = (payload.metadata or ReportMetadata()).model_copy(
         update={"draft_source": "handwritten"}
     )
+    _validate_session_times(metadata)
     return save_draft(
         request.app.state.database_path,
         payload.notes,
@@ -115,11 +117,12 @@ async def generate_report(
     request: Request,
 ) -> ReportDraft:
     """Generate and save an unapproved DAP draft from synthetic session notes."""
-    sections = await _generate_sections(payload.notes)
-    # Run the synchronous SQLite write off the event loop.
     metadata = (payload.metadata or ReportMetadata()).model_copy(
         update={"draft_source": "ai_assisted"}
     )
+    _validate_session_times(metadata)
+    sections = await _generate_sections(payload.notes)
+    # Run the synchronous SQLite write off the event loop.
     draft = await run_in_threadpool(
         save_draft,
         request.app.state.database_path,
@@ -128,6 +131,16 @@ async def generate_report(
         metadata,
     )
     return ReportDraft(report_id=draft.report_id, sections=sections)
+
+
+def _validate_session_times(
+    metadata: ReportMetadata, saved: ReportMetadata | None = None
+) -> None:
+    """Report reversed session times as a request validation error."""
+    try:
+        metadata.validate_time_range(saved)
+    except InvalidSessionTimeRange as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 async def _generate_sections(notes: str) -> DAPSections:
@@ -219,6 +232,8 @@ def edit_report(
     """Save corrected notes, sections, or report details while keeping draft status."""
     try:
         report = edit_draft(request.app.state.database_path, report_id, payload)
+    except InvalidSessionTimeRange as exc:
+        raise HTTPException(422, str(exc)) from exc
     except ReviewConflict as exc:
         raise HTTPException(409, str(exc)) from exc
     if report is None:
@@ -252,6 +267,11 @@ async def regenerate_report(
     if current.revision != payload.revision:
         raise HTTPException(409, "Report changed. Reload the current revision.")
 
+    if (
+        payload.metadata
+        and {"start_time", "end_time"} & payload.metadata.model_fields_set
+    ):
+        _validate_session_times(payload.metadata, current.metadata)
     sections = await _generate_sections(payload.notes)
     edit = EditReportRequest(
         revision=payload.revision,
@@ -264,6 +284,8 @@ async def regenerate_report(
         report = await run_in_threadpool(
             edit_draft, path, report_id, edit, ai_assisted=True
         )
+    except InvalidSessionTimeRange as exc:
+        raise HTTPException(422, str(exc)) from exc
     except ReviewConflict as exc:
         raise HTTPException(409, str(exc)) from exc
     if report is None:

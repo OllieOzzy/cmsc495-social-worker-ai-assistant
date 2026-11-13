@@ -166,6 +166,7 @@ def edit_draft(
         edit.revision,
         ", ".join(f"{column} = ?" for column in changes),
         tuple(changes.values()),
+        check_time_range="start_time" in changes or "end_time" in changes,
     )
 
 
@@ -215,6 +216,7 @@ def _update_review(
     values: tuple[str | None, ...] = (),
     *,
     require_complete: bool = False,
+    check_time_range: bool = False,
 ) -> StoredReportDraft | None:
     """Apply a fixed SQL update and read its result in the same transaction."""
     complete = (
@@ -239,6 +241,9 @@ def _update_review(
                     "Complete all three DAP sections before approving."
                 )
             raise ReviewConflict("Report changed. Reload the current revision.")
+        if check_time_range and report is not None and report.metadata is not None:
+            # Validate the merged row before the transaction commits.
+            report.metadata.validate_time_range()
         return report
 
 
