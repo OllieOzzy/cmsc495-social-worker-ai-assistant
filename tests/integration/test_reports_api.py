@@ -835,6 +835,46 @@ def test_session_and_reporting_fields_round_trip(app, mock_ollama):
         )
 
 
+def test_reversed_session_times_are_rejected_without_saving(app, mock_ollama):
+    """Check new and partial edits, including AI requests before inference."""
+
+    def unexpected_request(_request):
+        pytest.fail("Reversed times should be rejected before calling Ollama.")
+
+    mock_ollama(unexpected_request)
+    times = {"start_time": "09:00", "end_time": "09:25"}
+    error = {"detail": "End time must be at or after start time."}
+    with TestClient(app) as client:
+        for route in ("manual", "generate"):
+            response = client.post(
+                f"/reports/{route}",
+                json={"notes": NOTES, "metadata": {**times, "end_time": "08:55"}},
+            )
+            assert response.status_code == 422
+            assert response.json() == error
+        assert client.get("/reports").json() == []
+
+        created = client.post("/reports/manual", json={"metadata": times})
+        assert created.status_code == 201
+        draft = created.json()
+        path = f"/reports/{draft['report_id']}"
+        edit = {"revision": draft["revision"], "metadata": {"start_time": "10:00"}}
+        for response in (
+            client.patch(path, json=edit),
+            client.post(f"{path}/regenerate", json={**edit, "notes": NOTES}),
+        ):
+            assert response.status_code == 422
+            assert response.json() == error
+        assert client.get(path).json() == draft
+
+        cleared = client.patch(
+            path, json={**edit, "metadata": {**edit["metadata"], "end_time": None}}
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["metadata"]["end_time"] is None
+        assert cleared.json()["metadata"]["total_minutes"] is None
+
+
 def test_list_reports_returns_empty_list_for_new_database(app):
     """Verify the history endpoint returns an empty list before any saves."""
     with TestClient(app) as client:
