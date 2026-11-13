@@ -37,8 +37,18 @@ class ReportMetadata(BaseModel):
     date_of_service: date | None = None
     social_worker_name: MetadataText | None = None
     service_basis: Literal["iep", "504", "general_referral"] | None = None
-    start_time: time | None = None
-    end_time: time | None = None
+    start_time: time | None = Field(
+        default=None,
+        description="Local start time in HH:MM format.",
+        examples=["09:00"],
+        json_schema_extra={"example": "09:00"},
+    )
+    end_time: time | None = Field(
+        default=None,
+        description="Local end time in HH:MM format.",
+        examples=["09:25"],
+        json_schema_extra={"example": "09:25"},
+    )
     session_type: Literal["individual", "group", "family"] | None = None
     setting: Literal["in_person", "virtual"] | None = None
     iep_504_goal_addressed: MetadataText | None = None
