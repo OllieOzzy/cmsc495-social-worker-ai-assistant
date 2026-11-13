@@ -124,6 +124,44 @@ def test_openapi_manual_draft_examples_match_the_api(app):
     assert actual["approved_by"] is None
 
 
+@pytest.mark.parametrize("operation", ["generate", "regenerate"])
+def test_openapi_ai_draft_examples_accept_session_times(app, mock_ollama, operation):
+    """Submit the documented AI request and check the saved session duration."""
+    sections = {
+        "data": "The student practiced asking for help.",
+        "assessment": "Not documented.",
+        "plan": "Not documented.",
+    }
+    mock_ollama(
+        lambda request: httpx.Response(
+            200, json={"done": True, "message": {"content": json.dumps(sections)}}
+        )
+    )
+
+    with TestClient(app) as client:
+        paths = client.get("/openapi.json").json()["paths"]
+        route = "/reports/generate"
+        if operation == "regenerate":
+            created = client.post("/reports/manual", json={})
+            assert created.status_code == 201
+            route = "/reports/{report_id}/regenerate"
+            url = route.format(report_id=created.json()["report_id"])
+        else:
+            url = route
+
+        body = paths[route]["post"]["requestBody"]["content"]["application/json"]
+        response = client.post(url, json=body["examples"]["session"]["value"])
+        assert response.status_code == 200
+        report_id = response.json()["report_id"]
+        saved = client.get(f"/reports/{report_id}")
+        assert saved.status_code == 200
+
+    metadata = saved.json()["metadata"]
+    assert metadata["start_time"] == "09:00:00"
+    assert metadata["end_time"] == "09:25:00"
+    assert metadata["total_minutes"] == 25
+
+
 def test_manual_draft_can_be_saved_and_completed_without_ollama(app, mock_ollama):
     """Save a manual draft and approve it after all three sections are filled."""
 
