@@ -1,4 +1,4 @@
-"""API endpoints for generating, finding, and reviewing DAP reports."""
+"""API endpoints for generating, finding, reviewing, and exporting DAP reports."""
 
 from typing import Annotated
 from uuid import UUID
@@ -17,6 +17,7 @@ from documentation_assistant.backend.db import (
     reopen_approved_report,
     save_draft,
 )
+from documentation_assistant.backend.export.pdf import render_report_pdf
 from documentation_assistant.backend.llm.ollama import (
     InvalidModelResponse,
     generate_dap,
@@ -116,6 +117,33 @@ def read_report(report_id: UUID, request: Request) -> StoredReportDraft:
     if draft is None:
         raise HTTPException(404, "Report draft not found.")
     return draft
+
+
+@router.get(
+    "/{report_id}/download",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "application/pdf": {"schema": {"type": "string", "format": "binary"}}
+            }
+        },
+        404: {"description": "Report draft not found."},
+    },
+)
+def download_report(report_id: UUID, request: Request) -> Response:
+    """Download the current saved report as a PDF."""
+    report = read_report(report_id, request)
+    suffix = "-draft" if report.status == "draft" else ""
+    filename = f"dap-{report.report_id}{suffix}.pdf"
+    return Response(
+        content=render_report_pdf(report),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.patch("/{report_id}", response_model=StoredReportDraft)
