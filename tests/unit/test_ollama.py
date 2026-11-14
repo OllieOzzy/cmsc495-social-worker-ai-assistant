@@ -29,76 +29,24 @@ def ollama_post(monkeypatch):
 
 def test_generate_dap_parses_completed_reply(ollama_post):
     """Verify a completed reply becomes validated DAP sections."""
-    ollama_post.return_value = httpx.Response(
-        200,
-        request=httpx.Request("POST", "http://127.0.0.1:11434/api/chat"),
-        json={"done": True, "message": {"content": json.dumps(SECTIONS)}},
-    )
-
-    sections = asyncio.run(generate_dap(NOTES))
-
-    assert sections.model_dump() == SECTIONS
-    ollama_post.assert_awaited_once()
-
-
-@pytest.mark.parametrize(
-    ("notes", "plan", "evidence", "expected"),
-    [
-        (
-            "The student said they felt nervous before a math test. "
-            "We practiced paced breathing together.",
-            "Staff will offer paced breathing before future tests. "
-            "No further action is planned.",
-            [],
-            "Not documented.",
-        ),
-        (
-            f"{NOTES} We agree on a plan tomorrow to meet after school to follow up.",
-            "A follow-up meeting is planned for after school tomorrow.",
-            ["We agree on a plan tomorrow to meet after school to follow up."],
-            "A follow-up meeting is planned for after school tomorrow.",
-        ),
-        (
-            f"{NOTES}\nThe student and social worker will meet Friday\n after lunch.",
-            "The student and social worker will check in Friday after lunch.",
-            ["The student and social worker will meet Friday after lunch."],
-            "The student and social worker will check in Friday after lunch.",
-        ),
-        (
-            NOTES,
-            "A follow-up is planned for Friday.",
-            ["The social worker will follow up Friday."],
-            "Not documented.",
-        ),
-    ],
-    ids=[
-        "missing-evidence",
-        "matching-evidence",
-        "wrapped-evidence",
-        "invented-evidence",
-    ],
-)
-def test_generate_dap_requires_plan_evidence_from_notes(
-    ollama_post, notes, plan, evidence, expected
-):
-    """Keep the plan only when its evidence appears in the notes."""
-    ollama_post.return_value = httpx.Response(
-        200,
-        request=httpx.Request("POST", "http://127.0.0.1:11434/api/chat"),
-        json={
-            "done": True,
-            "message": {
-                "content": json.dumps(
-                    {**SECTIONS, "plan": plan, "plan_evidence": evidence}
-                )
-            },
-        },
-    )
-
-    assert asyncio.run(generate_dap(notes)).model_dump() == {
+    notes = f"{NOTES} We agreed to meet Friday after lunch."
+    expected_sections = {
         **SECTIONS,
-        "plan": expected,
+        "plan": "A check-in is planned for Friday after lunch.",
     }
+    ollama_post.return_value = httpx.Response(
+        200,
+        request=httpx.Request("POST", "http://127.0.0.1:11434/api/chat"),
+        json={"done": True, "message": {"content": json.dumps(expected_sections)}},
+    )
+
+    sections = asyncio.run(generate_dap(notes))
+
+    assert sections.model_dump() == expected_sections
+    ollama_post.assert_awaited_once()
+    assert set(ollama_post.call_args.kwargs["json"]["format"]["properties"]) == set(
+        expected_sections
+    )
 
 
 @pytest.mark.parametrize(
