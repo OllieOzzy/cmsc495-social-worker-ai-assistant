@@ -1,1 +1,1 @@
-"""API request and response models."""
+"""Pydantic models for DAP report requests and responses."""
