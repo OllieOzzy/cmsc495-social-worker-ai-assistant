@@ -84,6 +84,84 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
     }
 
 
+def test_openapi_manual_draft_examples_match_the_api(app):
+    """Submit the Swagger request example and compare it with the response example."""
+    with TestClient(app) as client:
+        schema = client.get("/openapi.json").json()
+        operation = schema["paths"]["/reports/manual"]["post"]
+        request_body = operation["requestBody"]["content"]["application/json"]
+        response = client.post(
+            "/reports/manual", json=request_body["examples"]["session"]["value"]
+        )
+        assert response.status_code == 201
+        path = "/reports/{report_id}"
+        edit_body = schema["paths"][path]["patch"]["requestBody"]["content"][
+            "application/json"
+        ]
+        report_id = response.json()["report_id"]
+        edited = client.patch(
+            f"/reports/{report_id}", json=edit_body["examples"]["session"]["value"]
+        )
+        assert edited.status_code == 200
+        download = schema["paths"][f"{path}/download"]["get"]
+        parameter = next(p for p in download["parameters"] if p["name"] == "report_id")
+        assert parameter["required"]
+        assert "saved reports" in parameter["description"]
+
+    documented = operation["responses"]["201"]["content"]["application/json"]["example"]
+    actual = response.json()
+    for field in (
+        "sections",
+        "notes",
+        "status",
+        "revision",
+    ):
+        assert actual[field] == documented[field]
+    assert {
+        field: actual["metadata"][field] for field in documented["metadata"]
+    } == documented["metadata"]
+    assert actual["approved_at"] is None
+    assert actual["approved_by"] is None
+
+
+@pytest.mark.parametrize("operation", ["generate", "regenerate"])
+def test_openapi_ai_draft_examples_accept_session_times(app, mock_ollama, operation):
+    """Submit the documented AI request and check the saved session duration."""
+    sections = {
+        "data": "The student practiced asking for help.",
+        "assessment": "Not documented.",
+        "plan": "Not documented.",
+    }
+    mock_ollama(
+        lambda request: httpx.Response(
+            200, json={"done": True, "message": {"content": json.dumps(sections)}}
+        )
+    )
+
+    with TestClient(app) as client:
+        paths = client.get("/openapi.json").json()["paths"]
+        route = "/reports/generate"
+        if operation == "regenerate":
+            created = client.post("/reports/manual", json={})
+            assert created.status_code == 201
+            route = "/reports/{report_id}/regenerate"
+            url = route.format(report_id=created.json()["report_id"])
+        else:
+            url = route
+
+        body = paths[route]["post"]["requestBody"]["content"]["application/json"]
+        response = client.post(url, json=body["examples"]["session"]["value"])
+        assert response.status_code == 200
+        report_id = response.json()["report_id"]
+        saved = client.get(f"/reports/{report_id}")
+        assert saved.status_code == 200
+
+    metadata = saved.json()["metadata"]
+    assert metadata["start_time"] == "09:00:00"
+    assert metadata["end_time"] == "09:25:00"
+    assert metadata["total_minutes"] == 25
+
+
 def test_manual_draft_can_be_saved_and_completed_without_ollama(app, mock_ollama):
     """Save a manual draft and approve it after all three sections are filled."""
 
@@ -441,15 +519,24 @@ def test_review_saves_corrections_and_only_approves_the_current_revision(
 
 def test_reopen_clears_approval_and_allows_corrections(app):
     """Reopen the current revision in place and approve it again after editing."""
-    sections = {
-        "data": NOTES,
-        "assessment": "Not documented.",
-        "plan": "Not documented.",
-    }
     with TestClient(app) as client:
+        paths = client.get("/openapi.json").json()["paths"]
+        create = paths["/reports/manual"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]
+        reopen = paths["/reports/{report_id}/reopen"]["post"]
+        example = reopen["responses"]["200"]["content"]["application/json"]["example"]
+        reopen_payload = reopen["requestBody"]["content"]["application/json"][
+            "examples"
+        ]["approved"]["value"]
+        sections = {
+            "data": create["examples"]["session"]["value"]["notes"],
+            "assessment": "Not documented.",
+            "plan": "Not documented.",
+        }
         created = client.post(
             "/reports/manual",
-            json={"notes": NOTES, "metadata": {"student_name": "Example Student"}},
+            json=create["examples"]["session"]["value"],
         )
         assert created.status_code == 201
         path = f"/reports/{created.json()['report_id']}"
@@ -465,7 +552,7 @@ def test_reopen_clears_approval_and_allows_corrections(app):
         assert stale.status_code == 409
         assert client.get(path).json() == approved
 
-        response = client.post(f"{path}/reopen", json={"revision": 3})
+        response = client.post(f"{path}/reopen", json=reopen_payload)
         assert response.status_code == 200
         reopened = response.json()
         assert reopened == {
@@ -475,6 +562,11 @@ def test_reopen_clears_approval_and_allows_corrections(app):
             "approved_at": None,
             "approved_by": None,
         }
+        for field in ("notes", "sections", "status", "revision"):
+            assert reopened[field] == example[field]
+        assert {
+            field: reopened["metadata"][field] for field in example["metadata"]
+        } == example["metadata"]
         assert client.get(path).json() == reopened
         assert (
             client.get("/reports", params={"approved_by": "Taylor Example"}).json()

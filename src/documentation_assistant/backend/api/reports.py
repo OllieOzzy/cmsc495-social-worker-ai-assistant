@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Body, HTTPException, Path, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from documentation_assistant.backend.db import (
@@ -40,10 +40,55 @@ from documentation_assistant.backend.schemas.reports import (
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
+_SESSION_EXAMPLE = {
+    "notes": "The student practiced asking for help.",
+    "metadata": {"start_time": "09:00", "end_time": "09:25"},
+}
+_SAVED_SESSION_EXAMPLE = {
+    "start_time": "09:00:00",
+    "end_time": "09:25:00",
+    "draft_source": "handwritten",
+    "total_minutes": 25,
+}
+ReportId = Annotated[
+    UUID,
+    Path(
+        description="Use the report_id returned when you create or list saved reports."
+    ),
+]
 
-@router.post("/manual", response_model=StoredReportDraft, status_code=201)
+
+@router.post(
+    "/manual",
+    response_model=StoredReportDraft,
+    status_code=201,
+    responses={
+        201: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "report_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "sections": {"data": "", "assessment": "", "plan": ""},
+                        "notes": _SESSION_EXAMPLE["notes"],
+                        "metadata": _SAVED_SESSION_EXAMPLE,
+                        "status": "draft",
+                        "revision": 1,
+                    }
+                }
+            }
+        }
+    },
+)
 def create_manual_report(
-    payload: ManualReportRequest, request: Request
+    payload: Annotated[
+        ManualReportRequest,
+        Body(
+            openapi_examples={
+                "session": {"summary": "Manual draft", "value": _SESSION_EXAMPLE}
+            }
+        ),
+    ],
+    request: Request,
 ) -> StoredReportDraft:
     """Start a manual draft with optional notes and empty DAP sections."""
     metadata = (payload.metadata or ReportMetadata()).model_copy(
@@ -59,7 +104,15 @@ def create_manual_report(
 
 @router.post("/generate", response_model=ReportDraft)
 async def generate_report(
-    payload: GenerateReportRequest, request: Request
+    payload: Annotated[
+        GenerateReportRequest,
+        Body(
+            openapi_examples={
+                "session": {"summary": "AI-assisted draft", "value": _SESSION_EXAMPLE}
+            }
+        ),
+    ],
+    request: Request,
 ) -> ReportDraft:
     """Generate and save an unapproved DAP draft from synthetic session notes."""
     sections = await _generate_sections(payload.notes)
@@ -111,7 +164,7 @@ def list_reports(
 
 
 @router.get("/{report_id}", response_model=StoredReportDraft)
-def read_report(report_id: UUID, request: Request) -> StoredReportDraft:
+def read_report(report_id: ReportId, request: Request) -> StoredReportDraft:
     """Retrieve the original notes and generated sections for review."""
     draft = get_draft(request.app.state.database_path, report_id)
     if draft is None:
@@ -124,14 +177,15 @@ def read_report(report_id: UUID, request: Request) -> StoredReportDraft:
     response_class=Response,
     responses={
         200: {
+            "description": "Downloadable PDF file for the saved report.",
             "content": {
                 "application/pdf": {"schema": {"type": "string", "format": "binary"}}
-            }
+            },
         },
         404: {"description": "Report draft not found."},
     },
 )
-def download_report(report_id: UUID, request: Request) -> Response:
+def download_report(report_id: ReportId, request: Request) -> Response:
     """Download the current saved report as a PDF."""
     report = read_report(report_id, request)
     suffix = "-draft" if report.status == "draft" else ""
@@ -148,7 +202,19 @@ def download_report(report_id: UUID, request: Request) -> Response:
 
 @router.patch("/{report_id}", response_model=StoredReportDraft)
 def edit_report(
-    report_id: UUID, payload: EditReportRequest, request: Request
+    report_id: ReportId,
+    payload: Annotated[
+        EditReportRequest,
+        Body(
+            openapi_examples={
+                "session": {
+                    "summary": "Update session times using the current revision",
+                    "value": {"revision": 1, "metadata": _SESSION_EXAMPLE["metadata"]},
+                }
+            }
+        ),
+    ],
+    request: Request,
 ) -> StoredReportDraft:
     """Save corrected notes, sections, or report details while keeping draft status."""
     try:
@@ -162,7 +228,19 @@ def edit_report(
 
 @router.post("/{report_id}/regenerate", response_model=StoredReportDraft)
 async def regenerate_report(
-    report_id: UUID, payload: RegenerateReportRequest, request: Request
+    report_id: ReportId,
+    payload: Annotated[
+        RegenerateReportRequest,
+        Body(
+            openapi_examples={
+                "session": {
+                    "summary": "Regenerate a draft using the current revision",
+                    "value": {"revision": 1, **_SESSION_EXAMPLE},
+                }
+            }
+        ),
+    ],
+    request: Request,
 ) -> StoredReportDraft:
     """Replace the notes and AI-generated sections on the same draft revision."""
     path = request.app.state.database_path
@@ -195,7 +273,7 @@ async def regenerate_report(
 
 @router.delete("/{report_id}", status_code=204, response_class=Response)
 def delete_report(
-    report_id: UUID,
+    report_id: ReportId,
     revision: Annotated[int, Query(ge=1, le=2**63 - 1)],
     request: Request,
 ) -> Response:
@@ -211,7 +289,7 @@ def delete_report(
 
 @router.post("/{report_id}/approve", response_model=StoredReportDraft)
 def approve_report(
-    report_id: UUID, payload: ApproveReportRequest, request: Request
+    report_id: ReportId, payload: ApproveReportRequest, request: Request
 ) -> StoredReportDraft:
     """Explicitly approve the reviewed revision and make it read-only."""
     try:
@@ -228,11 +306,52 @@ def approve_report(
     return report
 
 
-@router.post("/{report_id}/reopen", response_model=StoredReportDraft)
+@router.post(
+    "/{report_id}/reopen",
+    response_model=StoredReportDraft,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "example": {
+                        "report_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                        "sections": {
+                            "data": _SESSION_EXAMPLE["notes"],
+                            "assessment": "Not documented.",
+                            "plan": "Not documented.",
+                        },
+                        "notes": _SESSION_EXAMPLE["notes"],
+                        "metadata": _SAVED_SESSION_EXAMPLE,
+                        "status": "draft",
+                        "revision": 4,
+                    }
+                }
+            }
+        },
+        404: {"description": "No report matches the supplied ID."},
+        409: {"description": "The report is already a draft or the revision is stale."},
+    },
+)
 def reopen_report(
-    report_id: UUID, payload: ReportRevisionRequest, request: Request
+    report_id: ReportId,
+    payload: Annotated[
+        ReportRevisionRequest,
+        Body(
+            openapi_examples={
+                "approved": {
+                    "summary": "Example only. Use the current approved revision.",
+                    "value": {"revision": 3},
+                }
+            }
+        ),
+    ],
+    request: Request,
 ) -> StoredReportDraft:
-    """Reopen an approved report for corrections."""
+    """Reopen an approved report for corrections.
+
+    Use the report ID and revision from the approval response or from
+    GET /reports/{report_id}. The report must be approved.
+    """
     try:
         report = reopen_approved_report(
             request.app.state.database_path, report_id, payload.revision
