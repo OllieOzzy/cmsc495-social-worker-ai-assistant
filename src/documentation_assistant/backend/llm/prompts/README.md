@@ -1,6 +1,6 @@
 # School Social Work DAP Note Prompt
 
-A system prompt designed to convert raw, unstructured school social work session notes into a clean, de-identified **DAP (Data, Assessment, Plan)** JSON draft.
+A system prompt that turns unstructured school social work session notes into a **DAP (Data, Assessment, Plan)** JSON draft for review. Use synthetic student notes during development and testing.
 
 ## Overview
 
@@ -8,7 +8,7 @@ This prompt instructs an LLM to act as a strict clinical documentation formatter
 
 ## Key Features & Guardrails
 
-* **Automatic De-Identification:** Replaces all personal names with neutral roles (e.g., `"the student"`, `"the social worker"`, `"the teacher"`) across all output sections.
+* **Name handling in generated drafts.** The prompt asks the model to omit personal names from the three generated sections and use roles such as "the student" or "the teacher." The app stores the original source notes as entered.
 * **Strict Anti-Hallucination Rules:** Prohibits adding diagnoses, motives, unstated interventions, or formal risk/mandated-reporting determinations.
 * **Uncertainty & Denial Preservation:** Distinguishes secondhand reports from witnessed events, preserves client denials/disagreements, and avoids turning conditional statements (*"wants to try"*, *"might"*) into firm commitments.
 * **Out-of-Order Parsing:** Reads the entire note—including late additions or timestamped jumps—and sequences events chronologically when clear.
@@ -17,7 +17,7 @@ This prompt instructs an LLM to act as a strict clinical documentation formatter
 
 ## Output Schema
 
-The prompt enforces a single JSON object containing three string fields. If a section has no supported information in the raw note, it defaults to `"Not documented."`.
+The backend validates that the model returns a JSON object with three nonblank text fields. The prompt asks the model to use `"Not documented."` when the notes contain no supported information for a section. The social worker reviews the draft against the original notes for accuracy and completeness.
 
 ```json
 {
