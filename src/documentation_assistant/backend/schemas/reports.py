@@ -25,6 +25,10 @@ ReportRevision = Annotated[int, Field(strict=True, ge=1, le=2**63 - 1)]
 YesNo = Literal["yes", "no"]
 
 
+class InvalidSessionTimeRange(ValueError):
+    """The end time precedes the start time on a same-day report."""
+
+
 class ReportMetadata(BaseModel):
     """Capture optional report details entered by the reviewer."""
 
@@ -68,6 +72,18 @@ class ReportMetadata(BaseModel):
         ):
             raise ValueError("Use a local time in HH:MM format")
         return value
+
+    def validate_time_range(self, saved: "ReportMetadata | None" = None) -> None:
+        """Check the times after applying any supplied fields to the saved values."""
+        start = self.start_time
+        end = self.end_time
+        if saved is not None:
+            if "start_time" not in self.model_fields_set:
+                start = saved.start_time
+            if "end_time" not in self.model_fields_set:
+                end = saved.end_time
+        if start is not None and end is not None and end < start:
+            raise InvalidSessionTimeRange("End time must be at or after start time.")
 
 
 class SavedReportMetadata(ReportMetadata):
