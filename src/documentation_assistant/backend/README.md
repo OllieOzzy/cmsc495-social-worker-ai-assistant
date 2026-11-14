@@ -99,7 +99,7 @@ draft source based on the endpoint used.
 
 Start Ollama and run `ollama pull qwen3:8b` if the model is missing. The backend
 uses Ollama on `127.0.0.1:11434`. To use a different installed model, set
-`OLLAMA_MODEL` before starting the backend.
+`OLLAMA_MODEL` before starting the backend. [Local Ollama setup guide](../../../docs/local-llm-setup.md)
 
 - PowerShell: `$env:OLLAMA_MODEL = "your-model-tag"`
 - bash or zsh: `export OLLAMA_MODEL="your-model-tag"`

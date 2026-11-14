@@ -1,6 +1,8 @@
 # cmsc495-social-worker-ai-assistant
 AI-powered documentation assistant for school social workers, developed as a UMGC CMSC 495 capstone project.
 
+See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and model checks on Windows, macOS, and Linux.
+
 ## 🗂️ Proposed Repository Structure
 
 ```text
