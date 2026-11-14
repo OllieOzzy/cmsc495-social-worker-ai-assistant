@@ -34,7 +34,7 @@ _ADDED_COLUMNS = {
 
 @contextmanager
 def connect(path: Path) -> Iterator[sqlite3.Connection]:
-    """Yield a SQLite connection with the drafts table ready to use."""
+    """Open SQLite, create the reports table if needed, and manage the transaction."""
     path.parent.mkdir(parents=True, exist_ok=True)
     # Commit or roll back the transaction before closing the connection.
     with closing(sqlite3.connect(path)) as connection, connection:
@@ -75,18 +75,17 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
 
 
 def _ensure_added_columns(connection: sqlite3.Connection) -> None:
-    """Upgrade existing databases while preserving saved reports."""
+    """Add any missing columns from the report schema."""
     column_query = "SELECT name FROM pragma_table_info('report_drafts')"
     columns = {name for (name,) in connection.execute(column_query)}
     if _ADDED_COLUMNS.keys() <= columns:
         return
 
-    # Recheck under the write lock in case another request migrated the database.
+    # Acquire the write lock and reread the schema before altering the table.
     connection.execute("BEGIN IMMEDIATE")
     columns = {name for (name,) in connection.execute(column_query)}
     for column, definition in _ADDED_COLUMNS.items():
         if column not in columns:
-            # Older reports start as drafts, with unknown timestamps left at NULL.
             connection.execute(
                 f"ALTER TABLE report_drafts ADD COLUMN {column} {definition}"
             )

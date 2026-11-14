@@ -1,4 +1,4 @@
-"""Local SQLite storage for DAP drafts."""
+"""Expose SQLite operations for saved DAP reports."""
 
 from documentation_assistant.backend.db.drafts import (
     ReviewConflict,
