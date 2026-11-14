@@ -51,6 +51,11 @@ See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and
 │       │   │   ├── 🐍 generation.py
 │       │   │   ├── 🐍 review.py
 │       │   │   └── 🐍 pdf_export.py
+│       │   ├── 📁 export/
+│       │   │   ├── 🐍 __init__.py
+│       │   │   ├── 🐍 pdf.py
+│       │   │   └── 📁 templates/
+│       │   │       └── 📋 School_Social_Work_DAP_Session_Note.pdf
 │       │   └── 📁 llm/
 │       │       ├── 🐍 __init__.py
 │       │       ├── 🐍 base.py
