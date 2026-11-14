@@ -1,4 +1,4 @@
-"""Render saved reports on the school's DAP PDF template."""
+"""Render saved DAP reports using the school form and continuation pages."""
 
 from datetime import date
 from html import escape
@@ -18,8 +18,9 @@ from documentation_assistant.backend.schemas.reports import (
 )
 
 _TEMPLATE = (
-    Path(__file__).resolve().parents[4]
-    / "docs/templates/School_Social_Work_DAP_Session_Note.pdf"
+    Path(__file__).resolve().parent
+    / "templates"
+    / "School_Social_Work_DAP_Session_Note.pdf"
 )
 _PAGE_WIDTH, _PAGE_HEIGHT = letter
 _TEXT_LEFT = 49
@@ -37,7 +38,7 @@ _APPROVAL_STYLE = ParagraphStyle(
 
 
 def render_report_pdf(report: StoredReportDraft) -> bytes:
-    """Return the school form and continuation pages for the saved report."""
+    """Return PDF bytes for a saved draft or approved report."""
     overlay = BytesIO()
     canvas = Canvas(overlay, pagesize=letter)
     is_draft = report.status == "draft"
@@ -46,6 +47,7 @@ def render_report_pdf(report: StoredReportDraft) -> bytes:
     _draw_continuations(canvas, overflow, is_draft)
     canvas.save()
 
+    # Overlay the first page on the template and append continuation pages as drawn.
     writer = PdfWriter()
     page = writer.add_page(PdfReader(_TEMPLATE).pages[0])
     pages = PdfReader(overlay).pages
@@ -60,7 +62,7 @@ def render_report_pdf(report: StoredReportDraft) -> bytes:
 def _draw_form(
     canvas: Canvas, report: StoredReportDraft
 ) -> list[tuple[str, Paragraph]]:
-    """Place saved values in the matching form boxes."""
+    """Fill the first-page form and collect text that needs more space."""
     metadata = report.metadata or SavedReportMetadata()
     overflow: list[tuple[str, Paragraph]] = []
 
@@ -70,9 +72,10 @@ def _draw_form(
         box: tuple[float, float, float, float],
         style: ParagraphStyle = _FIELD_STYLE,
     ) -> None:
-        """Draw a value in its box and carry excess text onto a continuation page."""
+        """Draw the text that fits and queue any remainder for continuation."""
         if value is None or value == "":
             return
+        # Preserve line breaks and render saved text literally in ReportLab.
         markup = "<br/>".join(escape(line) for line in str(value).splitlines())
         remaining, _ = _draw_paragraph(canvas, Paragraph(markup, style), *box)
         if remaining is not None:
@@ -165,12 +168,13 @@ def _draw_paragraph(
     width: float,
     height: float,
 ) -> tuple[Paragraph | None, float]:
-    """Draw the lines that fit and return the remainder and height used."""
+    """Draw text from the top of its box and return any remainder and used height."""
     _, used_height = paragraph.wrap(width, height)
     remaining = None
     if used_height > height:
         paragraph, remaining = paragraph.split(width, height)
         _, used_height = paragraph.wrap(width, height)
+    # ReportLab positions the paragraph by its bottom edge, measured from below.
     paragraph.drawOn(canvas, left, _PAGE_HEIGHT - top - used_height)
     return remaining, used_height
 
@@ -178,7 +182,7 @@ def _draw_paragraph(
 def _draw_continuations(
     canvas: Canvas, overflow: list[tuple[str, Paragraph]], is_draft: bool
 ) -> None:
-    """Continue each overflowing section under its own heading."""
+    """Lay out overflow from form fields and DAP sections under their labels."""
     page_number = 1
     top = _CONTINUATION_BOTTOM
     for label, paragraph in overflow:
@@ -214,13 +218,13 @@ def _draw_continuations(
                 _TEXT_WIDTH,
                 _CONTINUATION_BOTTOM - text_top,
             )
-            # A split section continues on a new page. The next section can share
+            # A split paragraph continues on a new page. The next field can share
             # this page if its heading and at least one line fit below.
             top = _CONTINUATION_BOTTOM if remaining else text_top + used_height + 12
 
 
 def _draw_page_labels(canvas: Canvas, page_number: int, is_draft: bool) -> None:
-    """Number every page and mark every page of a draft."""
+    """Add a page number and a DRAFT label when applicable."""
     if is_draft:
         canvas.setFillColor(HexColor("#862B24"))
         canvas.setFont("Helvetica-Bold", 10)

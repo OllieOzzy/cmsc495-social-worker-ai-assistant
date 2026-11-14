@@ -1,4 +1,4 @@
-"""Backend liveness endpoint."""
+"""Expose the API liveness check."""
 
 from typing import Literal
 
@@ -9,12 +9,12 @@ router = APIRouter(tags=["Health"])
 
 
 class HealthResponse(BaseModel):
-    """Represent a successful API liveness check."""
+    """Define the JSON response for a successful liveness check."""
 
     status: Literal["ok"] = "ok"
 
 
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Confirm the API is responding independently of SQLite and Ollama."""
+    """Confirm FastAPI is responding without contacting SQLite or Ollama."""
     return HealthResponse()

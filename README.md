@@ -1,118 +1,126 @@
 # cmsc495-social-worker-ai-assistant
 AI-powered documentation assistant for school social workers, developed as a UMGC CMSC 495 capstone project.
 
-## 🗂️ Proposed Repository Structure
+See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and model checks on Windows, macOS, and Linux.
+
+## 🗂️ Repository Structure
 
 ```text
 📁 cmsc495-social-worker-ai-assistant/
 ├── 📄 README.md
 ├── ⚙️ pyproject.toml
 ├── 📄 requirements.txt
-├── ⚙️ .env.example
+├── ⚙️ .gitattributes
 ├── ⚙️ .gitignore
+├── 📁 .assets/
+│   ├── 🖼️ arch.drawio.svg
+│   ├── 🖼️ backend.drawio.svg
+│   └── 🖼️ frontend.drawio.svg
 ├── 📁 .github/
+│   ├── 📁 actions/
+│   │   └── 📁 setup-live-ollama/
+│   │       └── ⚙️ action.yml
 │   └── 📁 workflows/
-│       └── ⚙️ ci.yml
+│       ├── ⚙️ ci.yml
+│       └── ⚙️ live-ollama.yml
 ├── 📁 docs/
-│   ├── 📄 architecture.md
-│   ├── 📄 api-contracts.md
-│   ├── 📄 data-model.md
 │   ├── 📄 local-llm-setup.md
-│   ├── 📄 safety-and-limitations.md
-│   ├── 📄 user-guide.md
 │   └── 📁 templates/
 │       └── 📋 School_Social_Work_DAP_Session_Note.pdf
+├── 📁 scripts/
+│   ├── 🐍 ci_demo.py
+│   └── 🐍 preview_pdf.py
 ├── 📁 src/
 │   └── 📁 documentation_assistant/
 │       ├── 🐍 __init__.py
 │       ├── 📁 backend/
+│       │   ├── 📄 README.md
 │       │   ├── 🐍 __init__.py
 │       │   ├── 🐍 main.py
-│       │   ├── 🐍 config.py
 │       │   ├── 📁 api/
 │       │   │   ├── 🐍 __init__.py
 │       │   │   ├── 🐍 health.py
-│       │   │   ├── 🐍 sessions.py
 │       │   │   └── 🐍 reports.py
-│       │   ├── 📁 schemas/
-│       │   │   ├── 🐍 __init__.py
-│       │   │   ├── 🐍 sessions.py
-│       │   │   ├── 🐍 reports.py
-│       │   │   └── 🐍 generation.py
 │       │   ├── 📁 db/
 │       │   │   ├── 🐍 __init__.py
 │       │   │   ├── 🐍 connection.py
-│       │   │   ├── 🐍 models.py
-│       │   │   └── 🐍 repositories.py
-│       │   ├── 📁 services/
+│       │   │   └── 🐍 drafts.py
+│       │   ├── 📁 export/
 │       │   │   ├── 🐍 __init__.py
-│       │   │   ├── 🐍 generation.py
-│       │   │   ├── 🐍 review.py
-│       │   │   └── 🐍 pdf_export.py
-│       │   └── 📁 llm/
+│       │   │   ├── 🐍 pdf.py
+│       │   │   └── 📁 templates/
+│       │   │       └── 📋 School_Social_Work_DAP_Session_Note.pdf
+│       │   ├── 📁 llm/
+│       │   │   ├── 🐍 __init__.py
+│       │   │   ├── 🐍 ollama.py
+│       │   │   └── 📁 prompts/
+│       │   │       ├── 📄 README.md
+│       │   │       └── 📝 dap_generation.txt
+│       │   └── 📁 schemas/
 │       │       ├── 🐍 __init__.py
-│       │       ├── 🐍 base.py
-│       │       ├── 🐍 mock.py
-│       │       ├── 🐍 ollama.py
-│       │       └── 📁 prompts/
-│       │           └── 📝 dap_generation.txt
-│       └── 📁 frontend/
-│           ├── 🐍 __init__.py
-│           ├── 🐍 app.py
-│           ├── 🐍 config.py
-│           ├── 🐍 api_client.py
-│           └── 📁 components/
-│               ├── 🐍 __init__.py
-│               ├── 🐍 session_form.py
-│               ├── 🐍 dap_editor.py
-│               ├── 🐍 manual_fields.py
-│               └── 🐍 session_history.py
-├── 📁 tests/
-│   ├── 🐍 conftest.py
-│   ├── 📁 unit/
-│   │   ├── 🧪 test_ci_demo.py
-│   │   ├── 🧪 test_generation_validation.py
-│   │   ├── 🧪 test_review_rules.py
-│   │   └── 🧪 test_pdf_export.py
-│   ├── 📁 integration/
-│   │   ├── 🧪 test_ci_demo_cli.py
-│   │   ├── 🧪 test_sessions_api.py
-│   │   ├── 🧪 test_reports_api.py
-│   │   └── 🧪 test_documentation_workflow.py
-│   └── 📁 fixtures/
-│       └── 📄 synthetic_sessions.json
-├── 📁 scripts/
-│   ├── 🐍 ci_demo.py
-│   ├── 🐍 seed_demo.py
-│   └── 🐍 smoke_test_ollama.py
-└── 📁 data/
-    └── 📄 .gitkeep
+│       │       └── 🐍 reports.py
+│       └── 📁 frontend (pending)
+└── 📁 tests/
+    ├── 📁 integration/
+    │   ├── 🧪 test_ci_demo_cli.py
+    │   ├── 🧪 test_health_api.py
+    │   ├── 🧪 test_report_pdf.py
+    │   └── 🧪 test_reports_api.py
+    ├── 📁 llm/
+    │   ├── 🧪 test_dap_quality.py
+    │   └── 🧪 test_live_ollama.py
+    └── 📁 unit/
+        ├── 🧪 test_ci_demo.py
+        ├── 🧪 test_db_connection.py
+        ├── 🧪 test_drafts.py
+        ├── 🧪 test_health_handler.py
+        ├── 🧪 test_ollama.py
+        ├── 🧪 test_pdf_renderer.py
+        ├── 🧪 test_report_handlers.py
+        └── 🧪 test_report_schemas.py
 ```
+
+The backend creates the local SQLite file at `data/dap.db` on first use when
+started from the repository root. Git ignores the `data/` folder.
+
+## Diagram
+
+![Arch_Architecture](./.assets/arch.drawio.svg)
 
 ## Continuous Integration
 
-GitHub Actions runs four jobs using Python 3.12 on pushes, pull requests, and
-manual workflow runs:
+The [CI Pipeline](.github/workflows/ci.yml) runs on pushes, pull requests, and
+manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 
-| Job | Purpose |
-| --- | --- |
-| Linting | Ruff checks common Python mistakes and import ordering. |
-| Formatting | Ruff checks consistent code formatting without changing files. |
-| Unit tests | Pytest checks the demo function with missing and supplied synthetic notes. |
-| Integration tests | Pytest runs the demo in a separate process and verifies argument parsing, JSON output, and errors. |
+| Order | Job | What it checks |
+| --- | --- | --- |
+| 1 | Workflow Linting | actionlint checks GitHub Actions workflow syntax and expressions. |
+| 2 | Workflow Formatting | Prettier checks YAML formatting under `.github/`. |
+| 3 | Workflow Security | zizmor reports security findings. Scanner errors fail the job. |
+| 4 | Python Linting | Ruff checks for issues such as unused imports. |
+| 5 | Python Formatting | Ruff checks Python formatting. |
+| 6 | Python Security | Bandit scans the backend Python code. |
+| 7 | Dependency Security | pip-audit checks the dependencies in `requirements.txt` for known vulnerabilities. |
+| 8 | Unit Tests | Pytest checks individual pieces, including report validation and Ollama response parsing. |
+| 9 | Integration Tests | Pytest checks workflows such as saving reports in SQLite and downloading PDFs through FastAPI. |
+| 10 | Coverage Report | Combines unit and integration coverage, publishes the report in the run summary, and fails below 90% backend coverage. |
 
-Jobs run in order: **Linting → Formatting → Unit tests → Integration tests**.
-Each job starts only after the preceding job succeeds.
-Each job has its own runner and installs dependencies from `requirements.txt`.
-Failures block dependent jobs; missing tests are treated as failures.
+Each job waits for its prerequisite jobs to pass. The regular pipeline uses
+synthetic data and mocks Ollama responses where needed, so it runs without
+Ollama or a GPU. View the results under **Actions → CI Pipeline**.
 
-The demo copies notes into Data and leaves Assessment and Plan as
-`Not documented.` It is a deterministic CI example, not an LLM or the application
-report generator. FastAPI, SQLite, and mock-provider integration tests will be
-added during implementation. No GPU, Ollama server, secrets, or real student
-records are needed for CI. Model inference remains local.
+### Live Ollama tests
 
-Run the checks locally from an activated Python 3.12 virtual environment:
+To check actual model output, go to **Actions → Live Ollama Test → Run workflow**.
+The [live workflow](.github/workflows/live-ollama.yml) runs Ollama with
+`qwen3:4b` on the GitHub runner. The smoke test verifies that the backend can
+generate and save a draft. Select **Run the DAP quality cases after the smoke
+test** to also check generated sections against synthetic notes and print
+the drafts for review.
+
+### Run Python checks locally
+
+From the repository root, use your Python 3.12 virtual environment:
 
 ```shell
 python -m pip install -r requirements.txt
@@ -120,15 +128,7 @@ python -m ruff check .
 python -m ruff format --check .
 python -m pytest tests/unit -v
 python -m pytest tests/integration -v
-python scripts/ci_demo.py --notes "Synthetic student attended a session."
 ```
 
-Use `python -m ruff format .` to apply formatting locally.
-After pushing the workflow, open **Actions > CI** to inspect each job's logs.
-A successful run validates this demo, not the future application's functionality.
-
-![Arch_Architecture](./.assets/arch.drawio.svg)
-
-![Backend Architecture](./.assets/backend.drawio.svg)
-
-![Frontend Architecture](./.assets/frontend.drawio.svg)
+For live model tests on your own machine, follow the
+[backend test instructions](src/documentation_assistant/backend/README.md#tests).

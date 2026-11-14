@@ -1,4 +1,4 @@
-"""API endpoints for generating, finding, reviewing, and exporting DAP reports."""
+"""API endpoints for creating, finding, reviewing, and exporting DAP reports."""
 
 from typing import Annotated
 from uuid import UUID
@@ -91,7 +91,7 @@ def create_manual_report(
     ],
     request: Request,
 ) -> StoredReportDraft:
-    """Start a manual draft with optional notes and empty DAP sections."""
+    """Save a manual draft with optional source notes and blank DAP sections."""
     metadata = (payload.metadata or ReportMetadata()).model_copy(
         update={"draft_source": "handwritten"}
     )
@@ -116,13 +116,13 @@ async def generate_report(
     ],
     request: Request,
 ) -> ReportDraft:
-    """Generate and save an unapproved DAP draft from synthetic session notes."""
+    """Generate DAP sections with Ollama and save them as an unapproved draft."""
     metadata = (payload.metadata or ReportMetadata()).model_copy(
         update={"draft_source": "ai_assisted"}
     )
     _validate_session_times(metadata)
     sections = await _generate_sections(payload.notes)
-    # Run the synchronous SQLite write off the event loop.
+    # Keep the synchronous SQLite write from blocking other async requests.
     draft = await run_in_threadpool(
         save_draft,
         request.app.state.database_path,
@@ -136,7 +136,7 @@ async def generate_report(
 def _validate_session_times(
     metadata: ReportMetadata, saved: ReportMetadata | None = None
 ) -> None:
-    """Report reversed session times as a request validation error."""
+    """Reject reversed session times with HTTP 422, using saved times if needed."""
     try:
         metadata.validate_time_range(saved)
     except InvalidSessionTimeRange as exc:
@@ -178,7 +178,7 @@ def list_reports(
 
 @router.get("/{report_id}", response_model=StoredReportDraft)
 def read_report(report_id: ReportId, request: Request) -> StoredReportDraft:
-    """Retrieve the original notes and generated sections for review."""
+    """Return the saved report, including its source notes and current revision."""
     draft = get_draft(request.app.state.database_path, report_id)
     if draft is None:
         raise HTTPException(404, "Report draft not found.")
@@ -199,7 +199,7 @@ def read_report(report_id: ReportId, request: Request) -> StoredReportDraft:
     },
 )
 def download_report(report_id: ReportId, request: Request) -> Response:
-    """Download the current saved report as a PDF."""
+    """Download the current saved draft or approved report as a PDF."""
     report = read_report(report_id, request)
     suffix = "-draft" if report.status == "draft" else ""
     filename = f"dap-{report.report_id}{suffix}.pdf"
@@ -229,7 +229,7 @@ def edit_report(
     ],
     request: Request,
 ) -> StoredReportDraft:
-    """Save corrected notes, sections, or report details while keeping draft status."""
+    """Update notes, DAP sections, or metadata on the current draft revision."""
     try:
         report = edit_draft(request.app.state.database_path, report_id, payload)
     except InvalidSessionTimeRange as exc:
@@ -257,7 +257,7 @@ async def regenerate_report(
     ],
     request: Request,
 ) -> StoredReportDraft:
-    """Replace the notes and AI-generated sections on the same draft revision."""
+    """Save corrected notes and regenerated DAP sections as a new revision."""
     path = request.app.state.database_path
     current = await run_in_threadpool(get_draft, path, report_id)
     if current is None:
@@ -267,6 +267,7 @@ async def regenerate_report(
     if current.revision != payload.revision:
         raise HTTPException(409, "Report changed. Reload the current revision.")
 
+    # An omitted time stays as saved. Check the resulting range before inference.
     if (
         payload.metadata
         and {"start_time", "end_time"} & payload.metadata.model_fields_set
@@ -280,7 +281,7 @@ async def regenerate_report(
         metadata=payload.metadata,
     )
     try:
-        # Recheck the revision during the write in case it changed during inference.
+        # Check the revision again so AI output cannot overwrite a newer edit.
         report = await run_in_threadpool(
             edit_draft, path, report_id, edit, ai_assisted=True
         )
@@ -299,7 +300,7 @@ def delete_report(
     revision: Annotated[int, Query(ge=1, le=2**63 - 1)],
     request: Request,
 ) -> Response:
-    """Permanently delete the saved draft revision the user confirmed."""
+    """Permanently delete a draft when the supplied revision is current."""
     try:
         deleted = delete_draft(request.app.state.database_path, report_id, revision)
     except ReviewConflict as exc:
@@ -313,7 +314,7 @@ def delete_report(
 def approve_report(
     report_id: ReportId, payload: ApproveReportRequest, request: Request
 ) -> StoredReportDraft:
-    """Explicitly approve the reviewed revision and make it read-only."""
+    """Approve the current draft once all three DAP sections contain text."""
     try:
         report = approve_draft(
             request.app.state.database_path,
@@ -369,10 +370,10 @@ def reopen_report(
     ],
     request: Request,
 ) -> StoredReportDraft:
-    """Reopen an approved report for corrections.
+    """Return an approved report to draft and clear its approval details.
 
-    Use the report ID and revision from the approval response or from
-    GET /reports/{report_id}. The report must be approved.
+    Use the report ID and current approved revision from the approval response
+    or from GET /reports/{report_id}.
     """
     try:
         report = reopen_approved_report(

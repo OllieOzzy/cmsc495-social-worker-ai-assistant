@@ -1,1 +1,1 @@
-"""Render saved reports for download."""
+"""Export saved DAP reports as downloadable PDFs."""

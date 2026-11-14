@@ -1,4 +1,4 @@
-"""Configure the FastAPI backend and expose it to Uvicorn."""
+"""Build the FastAPI application and expose the Uvicorn entry point."""
 
 import os
 from pathlib import Path
@@ -10,7 +10,11 @@ from documentation_assistant.backend.api.reports import router as reports_router
 
 
 def create_app() -> FastAPI:
-    """Build the API with its documentation, database path, and routes."""
+    """Create a FastAPI instance with health and report routes.
+
+    Read DAP_DB_PATH during app creation so callers can configure the database
+    location. SQLite opens the database when a report operation needs it.
+    """
     application = FastAPI(
         title="Social Worker Documentation Assistant API",
         description=(
@@ -19,7 +23,7 @@ def create_app() -> FastAPI:
         ),
         version="0.1.0",
     )
-    # Resolve relative paths against the directory used to start the backend.
+    # Resolve relative database paths against the process working directory.
     application.state.database_path = Path(
         os.getenv("DAP_DB_PATH", "data/dap.db")
     ).resolve()
@@ -28,4 +32,5 @@ def create_app() -> FastAPI:
     return application
 
 
+# Uvicorn imports this instance when started with backend.main:app.
 app = create_app()

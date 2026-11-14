@@ -1,10 +1,8 @@
 # Local LLM Setup and Smoke Tests
 
-This guide verifies that Ollama can run a local model and produce preliminary
-DAP documentation drafts from synthetic notes.
-
-These manual checks do not prove the model is safe or accurate for real
-student records. All generated reports require human review.
+Use this guide to start Ollama and run standalone model checks with synthetic
+notes. For the app's actual report generation, see [Test through FastAPI](#test-through-fastapi).
+Review generated drafts against the source notes.
 
 ## Requirements
 
@@ -16,45 +14,70 @@ student records. All generated reports require human review.
 The initial reference setup uses Windows, an NVIDIA RTX 3090, and Qwen3 8B.
 Other hardware may require a smaller model.
 
-## 1. Verify Installation
+## 1. Install and Verify Ollama
 
-Open PowerShell:
+### Windows (PowerShell)
 
-```powershell
+Install Ollama and open it from the Start menu. If a command times out,
+quit Ollama from the system tray if it is running, reopen it from the Start
+menu, and run `ollama list` to check that the server responds.
+[Ollama Windows setup](https://docs.ollama.com/windows)
+
+### macOS (Terminal)
+
+Open the Ollama disk image, move Ollama to **Applications**, and launch it.
+Follow the app's prompt to make the `ollama` command available in Terminal.
+[Ollama macOS setup](https://docs.ollama.com/macos)
+
+### Linux (Terminal)
+
+Install Ollama with the official installer. [Ollama Linux setup](https://docs.ollama.com/linux)
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Run `ollama list` after installation. If it cannot reach Ollama, start the
+installed systemd service with `sudo systemctl start ollama`. For a setup
+without the service, run `ollama serve` and leave that terminal open. Run
+the model commands in a second terminal.
+
+### Verify on any platform
+
+```shell
 ollama --version
+ollama list
 ```
 
-For NVIDIA systems, verify the GPU and driver are detected:
-
-```powershell
-nvidia-smi
-```
+The list can be empty before you download a model. On Windows or Linux with
+an NVIDIA GPU, run `nvidia-smi` to check that the GPU and driver are detected.
 
 ## 2. Download and Start the Model
 
 Download the model once:
 
-```powershell
+```shell
 ollama pull qwen3:8b
 ```
 
 Start an interactive session:
 
-```powershell
+```shell
 ollama run qwen3:8b
 ```
 
-Inside the Ollama chat, set the context window:
+Inside the Ollama chat, set a 4,096-token context for these standalone checks:
 
 ```text
 /set parameter num_ctx 4096
 ```
 
-The following prompts are entered into the Ollama chat, not directly into
-PowerShell.
+At the Ollama chat prompt, enter three double quotes (`"""`) on their own line,
+paste one complete sample prompt below, then enter three double quotes on a
+new line to submit it as one message. [Ollama CLI multiline input](https://docs.ollama.com/cli#multiline-input)
 
-For each test, use a fresh conversation. Type `/bye`, restart the model,
-and set the context window again.
+For each test, start a fresh conversation. Enter `/bye`, run
+`ollama run qwen3:8b` again, and set the context window again.
 
 ## 3. Test: Documented Intervention and Response
 
@@ -143,21 +166,21 @@ No follow-up appointment was scheduled.
 
 ## 6. Verify GPU Use
 
-While the model is loaded, open a separate PowerShell window:
+While the model is loaded, open a separate terminal:
 
-```powershell
+```shell
 ollama ps
 ```
 
 Inspect the `PROCESSOR` column:
 
 - `100% GPU`: the model is loaded on the GPU.
-- A CPU/GPU split: some processing is offloaded to system memory.
+- A CPU/GPU split: part of the model runs on the CPU and uses system memory.
 - CPU-only execution: investigate GPU compatibility, drivers, and available memory.
 
-For NVIDIA GPU memory usage:
+For NVIDIA GPU memory usage on Windows or Linux:
 
-```powershell
+```shell
 nvidia-smi
 ```
 
@@ -168,13 +191,18 @@ GPU use verifies execution placement, not report accuracy.
 In PowerShell:
 
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:11434/api/tags"
+Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags"
+```
+
+On macOS or Linux:
+
+```bash
+curl -fsS http://127.0.0.1:11434/api/tags
 ```
 
 The response should list the downloaded model.
 
-This confirms that the local API is reachable. It does not test the future
-FastAPI application.
+This checks the Ollama API that the FastAPI backend connects to.
 
 ## 8. Record Results
 
@@ -210,15 +238,28 @@ Exit the interactive chat:
 
 Unload the model from memory:
 
-```powershell
+```shell
 ollama stop qwen3:8b
 ```
 
-The downloaded model remains available for later use.
+The downloaded model remains available and the Ollama server keeps running.
+To shut down the server, quit the desktop app on Windows or macOS, press
+**Ctrl+C** in the terminal running `ollama serve`, or run
+`sudo systemctl stop ollama` if Linux is running it as a systemd service.
+
+## Test through FastAPI
+
+The backend sends the [DAP prompt](../src/documentation_assistant/backend/llm/prompts/dap_generation.txt) with each
+request, sets an 8,192-token context, and validates the structured JSON
+response. An interactive `/set` command applies to the standalone chat.
+
+To try the app's generation workflow, start FastAPI and send synthetic
+notes to `POST /reports/generate` through Swagger. To run automated live
+tests, keep Ollama running with the configured model installed and follow
+the [backend test instructions](../src/documentation_assistant/backend/README.md#tests).
 
 ## References
 
 - [Ollama Windows setup](https://docs.ollama.com/windows)
 - [Qwen3 8B model](https://ollama.com/library/qwen3:8b)
 - [Context length and GPU offloading](https://docs.ollama.com/context-length)
-```

@@ -1,4 +1,4 @@
-"""Validate requests and responses for generating and retrieving DAP drafts."""
+"""Define the request, response, and model output schemas for DAP reports."""
 
 from datetime import date, datetime, time
 from typing import Annotated, Literal
@@ -30,7 +30,7 @@ class InvalidSessionTimeRange(ValueError):
 
 
 class ReportMetadata(BaseModel):
-    """Capture optional report details entered by the reviewer."""
+    """Hold optional session details and the workflow's draft source."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -66,7 +66,7 @@ class ReportMetadata(BaseModel):
     @field_validator("start_time", "end_time")
     @classmethod
     def validate_session_time(cls, value: time | None) -> time | None:
-        """Accept local clock times at minute precision."""
+        """Accept local times with no timezone or nonzero seconds."""
         if value is not None and (
             value.tzinfo is not None or value.second or value.microsecond
         ):
@@ -74,10 +74,11 @@ class ReportMetadata(BaseModel):
         return value
 
     def validate_time_range(self, saved: "ReportMetadata | None" = None) -> None:
-        """Check the times after applying any supplied fields to the saved values."""
+        """Reject an end time before the start time after applying any edits."""
         start = self.start_time
         end = self.end_time
         if saved is not None:
+            # Omitted fields keep saved times. An explicit null clears a time.
             if "start_time" not in self.model_fields_set:
                 start = saved.start_time
             if "end_time" not in self.model_fields_set:
@@ -87,12 +88,12 @@ class ReportMetadata(BaseModel):
 
 
 class SavedReportMetadata(ReportMetadata):
-    """Return saved details with the duration derived from the session times."""
+    """Include the calculated duration in saved report responses."""
 
     @computed_field
     @property
     def total_minutes(self) -> int | None:
-        """Return the duration when both times form a valid same-day range."""
+        """Return minutes for a valid same-day range, or None otherwise."""
         if self.start_time is None or self.end_time is None:
             return None
         start = self.start_time.hour * 60 + self.start_time.minute
@@ -119,7 +120,7 @@ class ReportFilters(BaseModel):
     # Compare the two dates after Pydantic has parsed both filter fields.
     @model_validator(mode="after")
     def validate_date_range(self) -> "ReportFilters":
-        """Require the start date to be on or before the end date."""
+        """Reject a reversed service date range when both bounds are supplied."""
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise ValueError("date_from must be on or before date_to")
         return self
@@ -144,7 +145,7 @@ class ManualReportRequest(BaseModel):
 
 
 class DraftSections(BaseModel):
-    """Accept editable DAP sections, including sections still blank."""
+    """Allow blank text in any section while a report is being drafted."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -154,7 +155,7 @@ class DraftSections(BaseModel):
 
 
 class DAPSections(DraftSections):
-    """Require Data, Assessment, and Plan text in the model output."""
+    """Require nonblank Data, Assessment, and Plan in the model output."""
 
     data: NonBlankText
     assessment: NonBlankText
@@ -169,14 +170,14 @@ class ReportContent(BaseModel):
 
 
 class ReportDraft(ReportContent):
-    """Return a newly generated draft."""
+    """Return the ID, status, and sections of a newly generated draft."""
 
     status: Literal["draft"] = "draft"
     sections: DAPSections
 
 
 class StoredReportDraft(ReportContent):
-    """Return the saved report, source notes, and review state."""
+    """Return a saved report with its source notes, metadata, and review state."""
 
     notes: Annotated[str, StringConstraints(strip_whitespace=True)]
     metadata: SavedReportMetadata | None = None
@@ -208,7 +209,7 @@ class DraftUpdateRequest(ReportRevisionRequest):
     @field_validator("metadata")
     @classmethod
     def validate_metadata(cls, value: ReportMetadata | None) -> ReportMetadata | None:
-        """Reserve draft source changes for the generation workflow."""
+        """Reject draft_source in edits, including an explicit null."""
         if value is not None and "draft_source" in value.model_fields_set:
             raise ValueError("Draft source is managed by the report workflow")
         return value
@@ -222,7 +223,7 @@ class EditReportRequest(DraftUpdateRequest):
 
     @model_validator(mode="after")
     def validate_changes(self) -> "EditReportRequest":
-        """Require at least one field to update."""
+        """Require notes, replacement sections, or at least one metadata key."""
         if (
             self.notes is None
             and self.sections is None
@@ -233,13 +234,13 @@ class EditReportRequest(DraftUpdateRequest):
 
 
 class RegenerateReportRequest(DraftUpdateRequest):
-    """Generate replacement DAP sections from corrected source notes."""
+    """Require source notes and the current revision for AI regeneration."""
 
     notes: RequiredSessionNotes
 
 
 class ReportSummary(BaseModel):
-    """Identify a saved report and include its current review status."""
+    """Provide identifying details and review status for the report list."""
 
     report_id: UUID
     status: ReportStatus = "draft"

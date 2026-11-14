@@ -1,4 +1,4 @@
-"""Store DAP reports, source notes, and review decisions.
+"""Store DAP reports, source notes, and the current approval state.
 
 Bandit flags queries built from strings as possible SQL injection (B608).
 The marked queries build their SQL from schema field names and fixed clauses.
@@ -29,7 +29,7 @@ _METADATA_PLACEHOLDERS = ", ".join("?" for _ in _METADATA_FIELDS)
 
 
 class ReviewConflict(Exception):
-    """The saved report is approved or its revision has changed."""
+    """The report's revision, status, or contents prevent the requested action."""
 
 
 def save_draft(
@@ -71,7 +71,7 @@ def save_draft(
 def list_drafts(
     path: Path, filters: ReportFilters | None = None
 ) -> list[ReportSummary]:
-    """List matching draft summaries in reverse insertion order."""
+    """List matching report summaries in reverse insertion order."""
     values = (filters or ReportFilters()).model_dump(mode="json")
     clauses = []
     parameters = []
@@ -120,13 +120,13 @@ def list_drafts(
 
 
 def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:
-    """Return the source notes and DAP sections for a saved draft ID."""
+    """Return the full saved report by ID, or None if it is missing."""
     with connect(path) as connection:
         return _get_report(connection, report_id)
 
 
 def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
-    """Delete only the current revision of a draft."""
+    """Delete a draft at the supplied revision and return False if it is missing."""
     with connect(path) as connection:
         # Check the status and revision in the same statement that deletes the row.
         deleted = connection.execute(
@@ -150,11 +150,12 @@ def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
 def edit_draft(
     path: Path, report_id: UUID, edit: EditReportRequest, *, ai_assisted: bool = False
 ) -> StoredReportDraft | None:
-    """Save changes on the current draft revision in one write."""
+    """Apply changes to a draft and return its incremented revision."""
     changes = edit.sections.model_dump() if edit.sections is not None else {}
     if edit.notes is not None:
         changes["notes"] = edit.notes
     if edit.metadata is not None:
+        # Omitted keys keep their saved values. Explicit nulls clear a field.
         changes.update(edit.metadata.model_dump(mode="json", exclude_unset=True))
     if ai_assisted:
         changes["draft_source"] = "ai_assisted"
@@ -173,7 +174,7 @@ def edit_draft(
 def approve_draft(
     path: Path, report_id: UUID, revision: int, approved_by: str
 ) -> StoredReportDraft | None:
-    """Approve the exact revision reviewed by the caller."""
+    """Approve the reviewed revision if all three DAP fields contain text."""
     return _update_review(
         path,
         report_id,
@@ -188,7 +189,7 @@ def approve_draft(
 def reopen_approved_report(
     path: Path, report_id: UUID, revision: int
 ) -> StoredReportDraft | None:
-    """Return the current approved revision to draft for editing."""
+    """Reopen the approved report as a new revision and clear approval details."""
     with connect(path) as connection:
         # Check the status and revision in the same statement that reopens the report.
         updated = connection.execute(
@@ -218,12 +219,12 @@ def _update_review(
     require_complete: bool = False,
     check_time_range: bool = False,
 ) -> StoredReportDraft | None:
-    """Apply a fixed SQL update and read its result in the same transaction."""
+    """Update the matching draft revision and read it in the same transaction."""
     complete = (
         "AND data <> '' AND assessment <> '' AND plan <> ''" if require_complete else ""
     )
     with connect(path) as connection:
-        # The conditional write prevents stale edits or approvals from winning a race.
+        # Check status and revision in the UPDATE so stale requests cannot write.
         # The callers build assignments from schema fields or fixed approval SQL.
         updated = connection.execute(
             f"""
@@ -242,7 +243,8 @@ def _update_review(
                 )
             raise ReviewConflict("Report changed. Reload the current revision.")
         if check_time_range and report is not None and report.metadata is not None:
-            # Validate the merged row before the transaction commits.
+            # A partial edit can conflict with the other saved time. If the
+            # combined range is invalid, the transaction rolls back the edit.
             report.metadata.validate_time_range()
         return report
 
@@ -289,7 +291,7 @@ def _get_report(
 
 
 def _read_metadata(values: list[str | None]) -> SavedReportMetadata | None:
-    """Restore user-supplied details from the selected SQLite columns."""
+    """Build metadata from the selected columns, or return None if all are empty."""
     if not any(values):
         return None
     return SavedReportMetadata.model_validate(
