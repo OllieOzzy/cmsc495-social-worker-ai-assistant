@@ -96,7 +96,7 @@ def show_sidebar():
             else:
                 st.error("Could not reach local Ollama. Check that it is running.")
 
-        tint_status_button("check_backend", st.session_state.get("backend_reachable"))
+        tint_status_button("check_backend", backend_reachable)
         tint_status_button("check_ollama", st.session_state.get("ollama_reachable"))
 
         st.subheader("History Reports")
