@@ -18,6 +18,9 @@ dependencies = [
     "uvicorn==0.54.0",
 ]
 
+[project.scripts]
+dap-assistant = "documentation_assistant.launcher:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 namespaces = false
