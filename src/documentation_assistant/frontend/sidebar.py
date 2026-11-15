@@ -61,10 +61,8 @@ def report_label(report):
     return " · ".join(part for part in parts if part)
 
 
-def tint_status_button(key: str, reachable: bool | None) -> None:
+def tint_status_button(key: str, reachable: bool) -> None:
     """Tint the button using the most recent check result."""
-    if reachable is None:
-        return
     color = "#22a366" if reachable else "#df5353"
     st.html(
         f"<style>.st-key-{key} button {{"
@@ -74,31 +72,41 @@ def tint_status_button(key: str, reachable: bool | None) -> None:
     )
 
 
+@st.fragment(run_every=60)
+def show_service_status() -> bool:
+    """Refresh both status indicators independently of the report form."""
+    with st.container(horizontal=True, gap="small"):
+        check_backend = st.button(
+            "Backend Status", key="check_backend", icon=":material/dns:"
+        )
+        check_ollama = st.button(
+            "AI Status", key="check_ollama", icon=":material/smart_toy:"
+        )
+
+    health = request_api("GET", "/health", timeout=3)
+    backend_reachable = isinstance(health, dict) and health.get("status") == "ok"
+    ollama_reachable = ollama_is_reachable()
+    tint_status_button("check_backend", backend_reachable)
+    tint_status_button("check_ollama", ollama_reachable)
+
+    if check_backend and backend_reachable:
+        # Let the manual check reload history after an offline start.
+        if st.session_state.get("history_waiting_for_backend"):
+            st.rerun()
+        st.success("FastAPI is reachable.")
+    if check_ollama:
+        if ollama_reachable:
+            st.success("Ollama is reachable.")
+        else:
+            st.error("Could not reach local Ollama. Check that it is running.")
+    return backend_reachable
+
+
 def show_sidebar():
     """Render report navigation and search."""
     with st.sidebar:
-        with st.container(horizontal=True, gap="small"):
-            check_backend = st.button(
-                "Backend Status", key="check_backend", icon=":material/dns:"
-            )
-            check_ollama = st.button(
-                "AI Status", key="check_ollama", icon=":material/smart_toy:"
-            )
-
-        health = request_api("GET", "/health", timeout=3)
-        backend_reachable = isinstance(health, dict) and health.get("status") == "ok"
-        if check_backend and backend_reachable:
-            st.success("FastAPI is reachable.")
-        if check_ollama:
-            st.session_state["ollama_reachable"] = ollama_is_reachable()
-            if st.session_state["ollama_reachable"]:
-                st.success("Ollama is reachable.")
-            else:
-                st.error("Could not reach local Ollama. Check that it is running.")
-
-        tint_status_button("check_backend", backend_reachable)
-        tint_status_button("check_ollama", st.session_state.get("ollama_reachable"))
-
+        backend_reachable = show_service_status()
+        st.session_state["history_waiting_for_backend"] = not backend_reachable
         st.subheader("History Reports")
         if st.button("New report", icon=":material/note_add:"):
             reset_report_entry()
