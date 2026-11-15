@@ -2,9 +2,8 @@
 
 The frontend lets school social workers create, review, and download Data,
 Assessment, and Plan (DAP) reports. It sends report requests to FastAPI.
-Use synthetic student data for development and testing.
 
-## Diagram
+## Overview Diagram
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 24, "rankSpacing": 30, "padding": 8, "curve": "step"}}}%%
@@ -39,6 +38,107 @@ flowchart TD
     style Streamlit fill:#F8FAFC,stroke:#93C5FD,color:#1E3A8A
 ```
 
+## Detailed Diagram
+
+```mermaid
+flowchart LR
+    Worker["School social worker"]
+
+    subgraph UI["Streamlit frontend"]
+        Start["Open the app"]
+        Status["Backend Status and AI Status<br/>Check on startup, every 60 seconds, and on click"]
+        Offline["Backend Status turns red<br/>Connection error appears below the buttons"]
+        Menu["App menu<br/>About and Contacts"]
+        Entry["New report<br/>Enter notes and optional session details"]
+        History["History Reports<br/>Filter and open saved reports"]
+        Manual["Written by hand<br/>Start with blank DAP sections"]
+        Generate["AI-assisted draft<br/>Generate and save DAP sections"]
+        Open["Open the saved report by ID"]
+        Retry["Retry opening draft"]
+        Review["Review report<br/>Show source notes and DAP side by side"]
+        Edit["Edit and save draft"]
+        Regenerate["Regenerate from updated notes"]
+        Approve["Approve saved draft"]
+        Approved["View approved report as read-only"]
+        Reopen["Reopen as draft"]
+        Delete["Confirm and delete draft"]
+        Download["Prepare and download PDF<br/>Draft or approved report"]
+
+        Start --> Status
+        Start --> Menu
+        Start --> Entry
+        Start --> History
+        Status -->|"FastAPI unavailable"| Offline
+        Offline -->|"Click Backend Status to recheck"| Status
+
+        Entry --> Manual
+        Entry --> Generate
+        Manual --> Review
+        Generate --> Open
+        History --> Open
+        Open -->|"Draft"| Review
+        Open -->|"Approved"| Approved
+        Open -->|"New AI draft saved but could not be opened"| Retry
+        Retry -->|"Use the same report ID"| Open
+
+        Review --> Edit
+        Review --> Regenerate
+        Review --> Approve
+        Review --> Delete
+        Edit --> Review
+        Regenerate --> Review
+        Approve --> Approved
+        Approved --> Reopen
+        Reopen --> Review
+        Review --> Download
+        Approved --> Download
+    end
+
+    subgraph API["FastAPI endpoints"]
+        HealthAPI["GET /health"]
+        ListAPI["GET /reports"]
+        ManualAPI["POST /reports/manual"]
+        GenerateAPI["POST /reports/generate"]
+        GetAPI["GET /reports/{report_id}"]
+        SaveAPI["PATCH /reports/{report_id}"]
+        RegenerateAPI["POST /reports/{report_id}/regenerate"]
+        ApproveAPI["POST /reports/{report_id}/approve"]
+        ReopenAPI["POST /reports/{report_id}/reopen"]
+        DeleteAPI["DELETE /reports/{report_id}?revision=…"]
+        DownloadAPI["GET /reports/{report_id}/download"]
+    end
+
+    Ollama["Local Ollama<br/>GET /api/tags"]
+
+    Worker --> Start
+    Status -.->|"Backend check"| HealthAPI
+    Status -.->|"AI reachability check"| Ollama
+    History -.-> ListAPI
+    Manual -.-> ManualAPI
+    Generate -.-> GenerateAPI
+    Open -.-> GetAPI
+    Edit -.-> SaveAPI
+    Regenerate -.-> RegenerateAPI
+    Approve -.-> ApproveAPI
+    Reopen -.-> ReopenAPI
+    Delete -.-> DeleteAPI
+    Download -.-> DownloadAPI
+
+    classDef navigation fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef report fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
+    classDef service fill:#CCFBF1,stroke:#0F766E,color:#134E4A
+    classDef error fill:#FEE2E2,stroke:#DC2626,color:#7F1D1D
+    classDef action fill:#FEF3C7,stroke:#B45309,color:#78350F
+    classDef approved fill:#DCFCE7,stroke:#15803D,color:#14532D
+
+    class Start,Menu,Entry,History navigation
+    class Manual,Open,Review,Edit report
+    class Status,Generate,Regenerate,Ollama service
+    class Offline,Delete error
+    class Retry,Reopen,Download action
+    class Approve,Approved approved
+```
+
 ## Local Setup
 
 Run the commands from the repository root, where `requirements.txt` is located.
@@ -54,7 +154,7 @@ Use the creation command that matches your setup:
 - If you still need Python 3.12, install the Python Install Manager, open a
   new PowerShell window, and run `py install 3.12`. Then run
   `py -3.12 -m venv .venv`. [Python Install Manager guide](https://docs.python.org/3/using/windows.html#python-install-manager)
-
+g
 Activate the environment with `.\.venv\Scripts\Activate.ps1`. If that
 script is missing or PowerShell blocks it, use `.\.venv\Scripts\python.exe`
 in place of `python` in the commands below.
