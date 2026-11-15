@@ -89,7 +89,7 @@ started from the repository root. Git ignores the `data/` folder.
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TD
     Worker["School social worker"]
     UI["Streamlit frontend"]
     API["FastAPI backend"]
