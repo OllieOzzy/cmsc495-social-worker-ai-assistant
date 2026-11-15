@@ -85,13 +85,10 @@ def show_sidebar():
                 "AI Status", key="check_ollama", icon=":material/smart_toy:"
             )
 
-        if check_backend:
-            health = request_api("GET", "/health")
-            st.session_state["backend_reachable"] = (
-                isinstance(health, dict) and health.get("status") == "ok"
-            )
-            if st.session_state["backend_reachable"]:
-                st.success("FastAPI is reachable.")
+        health = request_api("GET", "/health", timeout=3)
+        backend_reachable = isinstance(health, dict) and health.get("status") == "ok"
+        if check_backend and backend_reachable:
+            st.success("FastAPI is reachable.")
         if check_ollama:
             st.session_state["ollama_reachable"] = ollama_is_reachable()
             if st.session_state["ollama_reachable"]:
