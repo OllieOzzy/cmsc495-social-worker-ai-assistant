@@ -229,3 +229,77 @@ jobs:
           # Publish the report even when coverage falls below 90% and fails the job.
           python -m coverage report --show-missing --precision=2 --fail-under=90 \
             --format=markdown >> "$GITHUB_STEP_SUMMARY"
+
+  # Build once so all three runners test the same wheel.
+  build-wheel:
+    name: Build Wheel
+    needs: coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build the application wheel
+        run: python -m pip wheel --no-deps --wheel-dir dist .
+      - name: Upload the wheel for validation
+        uses: actions/upload-artifact@v6
+        with:
+          name: app-wheel-candidate
+          path: dist/*.whl
+          if-no-files-found: error
+
+  validate-wheel:
+    name: Validate Wheel (${{ matrix.os }})
+    needs: build-wheel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Download the built wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: app-wheel-candidate
+          path: dist
+      - name: Install and exercise the wheel in a fresh environment
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $venv = Join-Path $env:RUNNER_TEMP 'wheel-venv'
+          python -m venv $venv
+          $python = Join-Path $venv $(if ($IsWindows) { 'Scripts/python.exe' } else { 'bin/python' })
+          $wheel = Get-Item dist/*.whl
+          & $python -m pip install $wheel.FullName
+          & $python -m pip check
+          & $python -I scripts/check_installed_wheel.py
+
+  # Make the tested wheel available for a manual GitHub Release.
+  upload-wheel:
+    name: Upload Validated Wheel
+    needs: validate-wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Download the validated wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: app-wheel-candidate
+          path: dist
+      - name: Upload the release artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: app-wheel
+          path: dist/*.whl
+          if-no-files-found: error
