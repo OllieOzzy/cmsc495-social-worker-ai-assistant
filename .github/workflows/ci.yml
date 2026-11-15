@@ -283,7 +283,7 @@ jobs:
           $wheel = Get-Item dist/*.whl
           & $python -m pip install $wheel.FullName
           & $python -m pip check
-          & $python -I scripts/check_installed_wheel.py
+          & $python -I tests/packaging/check_installed_wheel.py
 
   # Make the tested wheel available for a manual GitHub Release.
   upload-wheel:
