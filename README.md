@@ -12,10 +12,6 @@ See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and
 ├── 📄 requirements.txt
 ├── ⚙️ .gitattributes
 ├── ⚙️ .gitignore
-├── 📁 .assets/
-│   ├── 🖼️ arch.drawio.svg
-│   ├── 🖼️ backend.drawio.svg
-│   └── 🖼️ frontend.drawio.svg
 ├── 📁 .github/
 │   ├── 📁 actions/
 │   │   └── 📁 setup-live-ollama/
@@ -59,7 +55,14 @@ See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and
 │       │   └── 📁 schemas/
 │       │       ├── 🐍 __init__.py
 │       │       └── 🐍 reports.py
-│       └── 📁 frontend (pending)
+│       └── 📁 frontend/
+│           ├── 📄 README.md
+│           ├── 🐍 __init__.py
+│           ├── 🐍 api_client.py
+│           ├── 🐍 app.py
+│           ├── 🐍 forms.py
+│           ├── 🐍 reports.py
+│           └── 🐍 sidebar.py
 └── 📁 tests/
     ├── 📁 integration/
     │   ├── 🧪 test_ci_demo_cli.py
@@ -83,9 +86,42 @@ See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and
 The backend creates the local SQLite file at `data/dap.db` on first use when
 started from the repository root. Git ignores the `data/` folder.
 
-## Diagram
+## Architecture
 
-![Arch_Architecture](./.assets/arch.drawio.svg)
+```mermaid
+flowchart TD
+    Worker["School social worker"]
+    UI["Streamlit frontend"]
+    API["FastAPI backend"]
+    AI["Local Ollama"]
+    DB[("Local SQLite")]
+    PDF["PDF exporter"]
+
+    Worker -->|"Enter notes or start a manual draft"| UI
+    UI -->|"Show source notes and DAP for review"| Worker
+    UI <-->|"Report requests, responses, and PDFs"| API
+    API <-->|"Generate DAP from source notes"| AI
+    API <-->|"Store and retrieve notes and reports"| DB
+    API <-->|"Export a saved draft or approved report"| PDF
+
+    classDef user fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:2px
+    classDef frontend fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A,stroke-width:2px
+    classDef backend fill:#FDF4FF,stroke:#E879F9,color:#000000,stroke-width:2px
+    classDef ai fill:#CCFBF1,stroke:#0F766E,color:#134E4A,stroke-width:2px
+    classDef storage fill:#DCFCE7,stroke:#15803D,color:#14532D,stroke-width:2px
+    classDef export fill:#FEF3C7,stroke:#B45309,color:#78350F,stroke-width:2px
+
+    class Worker user
+    class UI frontend
+    class API backend
+    class AI ai
+    class DB storage
+    class PDF export
+```
+
+See the [frontend guide](src/documentation_assistant/frontend/README.md) and
+[backend guide](src/documentation_assistant/backend/README.md) for setup and
+detailed diagrams.
 
 ## Continuous Integration
 

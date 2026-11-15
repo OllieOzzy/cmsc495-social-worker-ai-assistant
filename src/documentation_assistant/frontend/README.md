@@ -28,7 +28,7 @@ flowchart TD
 
     classDef user fill:#F1F5F9,stroke:#64748B,color:#0F172A
     classDef frontend fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
-    classDef backend fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
+    classDef backend fill:#FDF4FF,stroke:#E879F9,color:#000000
     classDef ai fill:#CCFBF1,stroke:#0F766E,color:#134E4A
 
     class User user
@@ -137,6 +137,8 @@ flowchart LR
     class Offline,Delete error
     class Retry,Reopen,Download action
     class Approve,Approved approved
+    style UI fill:#F8FAFC,stroke:#93C5FD,color:#1E3A8A
+    style API fill:#FDF4FF,stroke:#E879F9,color:#000000
 ```
 
 ## Local Setup

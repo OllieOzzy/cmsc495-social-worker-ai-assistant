@@ -5,9 +5,119 @@ report history, review and approval, and PDF downloads. It saves source notes
 and reports in SQLite and uses local Ollama for AI generation. Use synthetic
 student data for development and testing.
 
-## Diagram
+## Overview Diagram
 
-![Backend Architecture](../../../.assets/backend.drawio.svg)
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 34, "rankSpacing": 42, "padding": 8, "curve": "step"}}}%%
+flowchart TD
+    UI["Streamlit frontend"]
+
+    subgraph API["FastAPI backend"]
+        Routes["Health and report routes<br/>Pydantic validation"]
+        LLM["Ollama client<br/>DAP generation prompt"]
+        Store["Report storage<br/>Revision and approval checks"]
+        PDF["PDF renderer<br/>School DAP template"]
+
+        Routes -->|"Generate or regenerate"| LLM
+        Routes -->|"Save or load reports"| Store
+        Routes -->|"Export"| PDF
+        Store -->|"Saved report"| PDF
+    end
+
+    Ollama["Local Ollama"]
+    SQLite[("SQLite<br/>data/dap.db by default")]
+
+    UI <-->|"Requests, reports, and PDFs"| API
+    LLM <-->|"POST /api/chat"| Ollama
+    Store <--> SQLite
+
+    classDef frontend fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef backend fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
+    classDef ai fill:#CCFBF1,stroke:#0F766E,color:#134E4A
+    classDef storage fill:#DCFCE7,stroke:#15803D,color:#14532D
+    classDef export fill:#FEF3C7,stroke:#B45309,color:#78350F
+
+    class UI frontend
+    class Routes backend
+    class LLM,Ollama ai
+    class Store,SQLite storage
+    class PDF export
+    style API fill:#FDF4FF,stroke:#E879F9,color:#000000
+```
+
+## Detailed Diagram
+
+```mermaid
+flowchart LR
+    UI["Streamlit frontend"]
+    Docs["Swagger UI and OpenAPI<br/>GET /docs · GET /openapi.json"]
+
+    subgraph API["FastAPI backend"]
+        App["Application entry point<br/>main.py"]
+        Reports["Report router<br/>api/reports.py"]
+        Schemas["Pydantic validation<br/>schemas/reports.py"]
+
+        subgraph Routes["API endpoints"]
+            Health["GET /health"]
+            Manual["POST /reports/manual"]
+            Generate["POST /reports/generate"]
+            Read["GET /reports<br/>GET /reports/{report_id}"]
+            Edit["PATCH /reports/{report_id}"]
+            Regenerate["POST /reports/{report_id}/regenerate"]
+            Review["POST /reports/{report_id}/approve<br/>POST /reports/{report_id}/reopen<br/>DELETE /reports/{report_id}?revision=…"]
+            Download["GET /reports/{report_id}/download"]
+        end
+
+        subgraph Components["Backend components"]
+            LLM["Ollama client<br/>llm/ollama.py"]
+            Prompt["DAP generation prompt<br/>dap_generation.txt"]
+            Store["Report storage and revision checks<br/>db/drafts.py · db/connection.py"]
+            PDF["PDF renderer<br/>export/pdf.py"]
+        end
+
+        App --> Health
+        App --> Reports
+        Reports --> Schemas
+        Reports --> Manual & Generate & Read & Edit & Regenerate & Review & Download
+
+        Manual -->|"Save blank DAP sections"| Store
+        Generate -->|"Generate DAP sections"| LLM
+        Generate -->|"Save notes and generated draft"| Store
+        Read -->|"List, filter, or retrieve reports"| Store
+        Edit -->|"Save edits against the current revision"| Store
+        Regenerate -->|"Generate replacement sections"| LLM
+        Regenerate -->|"Update the same report and increment its revision"| Store
+        Review -->|"Check status and revision before writing"| Store
+        Download -->|"Load the current saved report"| Store
+        Download -->|"Render a draft or approved PDF"| PDF
+
+        Prompt --> LLM
+        LLM -->|"Validate the returned DAP sections"| Schemas
+    end
+
+    Ollama["Local Ollama server"]
+    DB[("SQLite<br/>data/dap.db by default")]
+    Template["School DAP PDF template"]
+
+    UI <-->|"HTTP requests and responses"| App
+    App --> Docs
+    LLM <-->|"POST /api/chat"| Ollama
+    Store <--> DB
+    Template -->|"Base form for the first page"| PDF
+
+    classDef frontend fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
+    classDef backend fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
+    classDef ai fill:#CCFBF1,stroke:#0F766E,color:#134E4A
+    classDef storage fill:#DCFCE7,stroke:#15803D,color:#14532D
+    classDef export fill:#FEF3C7,stroke:#B45309,color:#78350F
+
+    class UI frontend
+    class App,Docs,Reports,Schemas,Health,Manual,Generate,Read,Edit,Regenerate,Review backend
+    class LLM,Prompt,Ollama ai
+    class Store,DB storage
+    class Download,PDF,Template export
+    style API fill:#FDF4FF,stroke:#E879F9,color:#000000
+```
 
 ## Local Setup
 
