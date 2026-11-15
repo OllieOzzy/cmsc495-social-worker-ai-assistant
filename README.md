@@ -149,10 +149,10 @@ Ollama or a GPU. View the results under **Actions → CI Pipeline**.
 
 To check actual model output, go to **Actions → Live Ollama Test → Run workflow**.
 The [live workflow](.github/workflows/live-ollama.yml) runs Ollama with
-`qwen3:4b` on the GitHub runner. The smoke test verifies that the backend can
-generate and save a draft. Select **Run the DAP quality cases after the smoke
-test** to also check generated sections against synthetic notes and print
-the drafts for review.
+`qwen3:4b` on Ubuntu, Windows, and macOS. Each smoke test verifies that the
+backend can generate and save a draft. Select **Run the Ubuntu DAP quality cases
+after the smoke tests** to also check generated sections against synthetic notes
+and print the drafts for review.
 
 ### Run Python checks locally
 
