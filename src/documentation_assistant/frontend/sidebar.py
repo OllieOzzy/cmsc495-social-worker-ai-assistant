@@ -108,6 +108,9 @@ def show_sidebar():
             st.rerun()
 
         filters = report_filters()
+        if not backend_reachable:
+            return
+
         reports = request_api("GET", "/reports", params=filters)
         if reports:
             labels = {item["report_id"]: report_label(item) for item in reports}
