@@ -1,4 +1,4 @@
-"""Handle draft creation, review, approval, and PDF download."""
+"""Render report entry and review screens and handle their API requests."""
 
 from datetime import datetime
 from email.message import Message
@@ -17,7 +17,7 @@ DRAFT_SOURCE_LABELS = {"handwritten": "Written by hand", "ai_assisted": "AI-assi
 
 
 def show_saved_report(report):
-    """Switch to the editor using a complete saved report."""
+    """Clear pending entry state and open the saved report for review."""
     st.session_state.pop("note_entry", None)
     st.session_state.pop("pending_report_id", None)
     st.session_state["report"] = report
@@ -25,14 +25,14 @@ def show_saved_report(report):
 
 
 def open_report(report_id):
-    """Load the saved notes, sections, and revision before editing."""
+    """Fetch the full report by ID and open it if the request succeeds."""
     report = request_api("GET", f"/reports/{report_id}")
     if report is not None:
         show_saved_report(report)
 
 
 def reset_report_entry():
-    """Close the current report and reset the new report form."""
+    """Clear the current selection and reset the note entry widgets."""
     st.session_state.pop("report", None)
     st.session_state.pop("note_entry", None)
     st.session_state.pop("pending_report_id", None)
@@ -42,7 +42,11 @@ def reset_report_entry():
 
 
 def new_report():
-    """Start a draft or return to an existing draft with corrected notes."""
+    """Create a draft or edit the notes of an existing draft.
+
+    For an existing draft, Save notes keeps the displayed DAP text.
+    AI-assisted draft replaces all three DAP sections using the edited notes.
+    """
     prefill = st.session_state.get("note_entry", {})
     report_id = prefill.get("report_id")
     form_version = st.session_state.get("note_entry_version", 0)
@@ -84,6 +88,7 @@ def new_report():
     payload = {"notes": notes, "metadata": metadata}
     if report_id:
         path = f"/reports/{report_id}"
+        # Use the revision from the review screen so stale edits are rejected.
         payload["revision"] = prefill["revision"]
         if manual:
             payload["sections"] = prefill["sections"]
@@ -109,7 +114,7 @@ def new_report():
     with st.spinner("Generating draft…"):
         draft = request_api("POST", "/reports/generate", payload=payload, timeout=135)
     if draft is not None:
-        # Remember the saved ID before fetching the rest of the report.
+        # Keep the saved ID so a failed fetch can be retried without saving again.
         report_id = draft["report_id"]
         st.session_state["pending_report_id"] = report_id
         open_report(report_id)
@@ -118,7 +123,7 @@ def new_report():
 
 @st.fragment
 def report_download(report_id):
-    """Fetch the saved PDF on request and let the user save it."""
+    """Fetch the PDF for the saved report without submitting the review form."""
     st.caption(
         "The PDF uses the latest saved report. Save any edits before downloading."
     )
@@ -132,6 +137,7 @@ def report_download(report_id):
             st.error("The report server did not return a PDF.")
             return
 
+        # Use the filename supplied by the API when available.
         headers = Message()
         headers["Content-Disposition"] = response.headers.get("content-disposition", "")
         st.download_button(
@@ -145,7 +151,10 @@ def report_download(report_id):
 
 
 def review_report(report):
-    """Display a report and handle editing, approval, reopening, and deletion."""
+    """Show source notes beside the DAP sections and handle report actions.
+
+    Drafts are editable. Approved reports must be reopened before editing.
+    """
     report_id = report["report_id"]
     revision = report["revision"]
     approved = report["status"] == "approved"
@@ -250,9 +259,11 @@ def review_report(report):
                 delete = st.form_submit_button("Delete draft", icon=":material/delete:")
 
     with draft:
+        # Keep PDF preparation outside the form so it can run independently.
         report_download(report_id)
 
     if back:
+        # Carry the edits into the notes screen until the user saves or regenerates.
         st.session_state["note_entry"] = {
             "report_id": report_id,
             "revision": revision,
@@ -293,6 +304,7 @@ def review_report(report):
         )
         message = "Draft saved."
     elif approve:
+        # Approval applies to the saved revision, so require pending edits to be saved.
         saved_fields = {field: saved_metadata.get(field) for field in metadata}
         if sections != report["sections"] or metadata != saved_fields:
             st.error("Save your changes before approving this report.")

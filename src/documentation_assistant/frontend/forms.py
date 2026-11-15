@@ -1,4 +1,4 @@
-"""Render and serialize the shared report form fields."""
+"""Render shared Streamlit fields and convert their values for the report API."""
 
 from datetime import date, time
 
@@ -39,7 +39,7 @@ TIME_FORMAT_LABELS = {"12h": "12-hour (AM/PM)", "24h": "24-hour"}
 
 
 def text_inputs(fields, metadata, disabled):
-    """Read optional text fields from the form."""
+    """Prefill text fields and return trimmed input or None for blank fields."""
     return {
         field: st.text_input(
             label, value=metadata.get(field) or "", max_chars=200, disabled=disabled
@@ -50,9 +50,10 @@ def text_inputs(fields, metadata, disabled):
 
 
 def select_inputs(fields, metadata, disabled):
-    """Read dropdowns with a blank option that clears the saved value."""
+    """Return API choice values, using None for the Not documented option."""
     values = {}
     for field, (label, labels) in fields.items():
+        # Show readable labels while keeping the keys expected by the API.
         labels = {
             "": "Not documented",
             **labels,
@@ -72,7 +73,7 @@ def select_inputs(fields, metadata, disabled):
 
 
 def date_input(label, saved=None, disabled=False, *, key=None):
-    """Restore and serialize an optional calendar date."""
+    """Prefill an optional date and return it as YYYY-MM-DD or None."""
     value = st.date_input(
         label,
         value=date.fromisoformat(saved) if saved else None,
@@ -89,6 +90,7 @@ def apply_time_format(key):
 
 def color_expander(key, color, *, body_color=None, header_text_color="white"):
     """Color the expander header and optionally tint its body separately."""
+    # Scope the colors to the expander with this widget key.
     scope = f".st-key-{key} [data-testid='stExpander']"
     body_background = color if body_color is None else body_color
     label_color = "white" if body_color is None else "inherit"
@@ -104,7 +106,11 @@ def color_expander(key, color, *, body_color=None, header_text_color="white"):
 
 
 def session_details(metadata, *, form_key, disabled=False):
-    """Collect session details and the worker's reporting decisions."""
+    """Render session details and return metadata for the report request.
+
+    Prefill the saved values and disable metadata inputs for approved reports.
+    The social worker supplies the risk and mandated reporting details.
+    """
     with st.expander("Session Details"):
         values = text_inputs(TEXT_FIELDS, metadata, disabled)
         values["date_of_service"] = date_input(
@@ -135,8 +141,10 @@ def session_details(metadata, *, form_key, disabled=False):
                 format=time_format,
                 disabled=disabled,
             )
+            # The display can use AM/PM. The API receives a local ISO time.
             values[field] = clock_time.isoformat() if clock_time is not None else None
         if metadata.get("total_minutes") is not None:
+            # FastAPI calculates the duration from the saved start and end times.
             st.caption(f"Total minutes: {metadata['total_minutes']}")
         values.update(select_inputs(SESSION_CHOICES, metadata, disabled))
 

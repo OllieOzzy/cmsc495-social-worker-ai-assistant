@@ -1,4 +1,4 @@
-"""Display saved reports, search filters, and backend status."""
+"""Render service status, report filters, and saved-report navigation."""
 
 import streamlit as st
 
@@ -15,14 +15,14 @@ STATUS_LABELS = {"": "All statuses", "draft": "Draft", "approved": "Approved"}
 
 
 def clear_report_filters():
-    """Reset both the applied filters and their input values."""
+    """Clear the search inputs and the filters used for API requests."""
     for field in (*FILTER_FIELDS, "status", "date_from", "date_to"):
         st.session_state.pop(f"filter_{field}", None)
     st.session_state.pop("active_report_filters", None)
 
 
 def report_filters():
-    """Apply the report search parameters accepted by FastAPI."""
+    """Render the filter form and return the last applied query parameters."""
     with st.expander("Filter report"), st.form("report_filters"):
         filters = {
             field: st.text_input(label, key=f"filter_{field}", max_chars=200).strip()
@@ -44,6 +44,7 @@ def report_filters():
             if date_from and date_to and date_from > date_to:
                 st.error("Choose a start date on or before the end date.")
             else:
+                # Omit blank filters from the FastAPI query string.
                 st.session_state["active_report_filters"] = {
                     field: value for field, value in filters.items() if value
                 }
@@ -51,7 +52,7 @@ def report_filters():
 
 
 def report_label(report):
-    """Make reports distinguishable in the sidebar."""
+    """Build a report label from its name, date, short ID, and status."""
     metadata = report.get("metadata") or {}
     name = (
         metadata.get("student_name") or metadata.get("student_id") or "Untitled report"
@@ -61,10 +62,8 @@ def report_label(report):
     return " · ".join(part for part in parts if part)
 
 
-def tint_status_button(key: str, reachable: bool | None) -> None:
-    """Tint the button using the most recent check result."""
-    if reachable is None:
-        return
+def tint_status_button(key: str, reachable: bool) -> None:
+    """Color the keyed status button based on service reachability."""
     color = "#22a366" if reachable else "#df5353"
     st.html(
         f"<style>.st-key-{key} button {{"
@@ -74,31 +73,46 @@ def tint_status_button(key: str, reachable: bool | None) -> None:
     )
 
 
+@st.fragment(run_every=60)
+def show_service_status() -> bool:
+    """Check FastAPI and Ollama and return whether FastAPI is reachable.
+
+    The status panel runs on page load and refreshes on its own every minute
+    while the session is active.
+    """
+    with st.container(horizontal=True, gap="small"):
+        check_backend = st.button(
+            "Backend Status", key="check_backend", icon=":material/dns:"
+        )
+        check_ollama = st.button(
+            "AI Status", key="check_ollama", icon=":material/smart_toy:"
+        )
+
+    # Keep FastAPI connection errors below the status buttons.
+    health = request_api("GET", "/health", timeout=3)
+    backend_reachable = isinstance(health, dict) and health.get("status") == "ok"
+    ollama_reachable = ollama_is_reachable()
+    tint_status_button("check_backend", backend_reachable)
+    tint_status_button("check_ollama", ollama_reachable)
+
+    if check_backend and backend_reachable:
+        # A full rerun loads history if an earlier run skipped it.
+        if st.session_state.get("history_waiting_for_backend"):
+            st.rerun()
+        st.success("FastAPI is reachable.")
+    if check_ollama:
+        if ollama_reachable:
+            st.success("Ollama is reachable.")
+        else:
+            st.error("Could not reach local Ollama. Check that it is running.")
+    return backend_reachable
+
+
 def show_sidebar():
-    """Render report navigation and search."""
+    """Render service status, report filters, and saved-report controls."""
     with st.sidebar:
-        with st.container(horizontal=True, gap="small"):
-            check_backend = st.button(
-                "Backend Status", key="check_backend", icon=":material/dns:"
-            )
-            check_ollama = st.button(
-                "AI Status", key="check_ollama", icon=":material/smart_toy:"
-            )
-
-        health = request_api("GET", "/health", timeout=3)
-        backend_reachable = isinstance(health, dict) and health.get("status") == "ok"
-        if check_backend and backend_reachable:
-            st.success("FastAPI is reachable.")
-        if check_ollama:
-            st.session_state["ollama_reachable"] = ollama_is_reachable()
-            if st.session_state["ollama_reachable"]:
-                st.success("Ollama is reachable.")
-            else:
-                st.error("Could not reach local Ollama. Check that it is running.")
-
-        tint_status_button("check_backend", backend_reachable)
-        tint_status_button("check_ollama", st.session_state.get("ollama_reachable"))
-
+        backend_reachable = show_service_status()
+        st.session_state["history_waiting_for_backend"] = not backend_reachable
         st.subheader("History Reports")
         if st.button("New report", icon=":material/note_add:"):
             reset_report_entry()
@@ -106,6 +120,7 @@ def show_sidebar():
 
         filters = report_filters()
         if not backend_reachable:
+            # The status panel already reports the connection problem.
             return
 
         reports = request_api("GET", "/reports", params=filters)

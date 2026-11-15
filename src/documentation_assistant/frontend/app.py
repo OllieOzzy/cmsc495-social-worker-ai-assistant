@@ -1,4 +1,6 @@
-"""Start the Streamlit app for the DAP documentation assistant."""
+"""Configure the Streamlit app and route between reports and team contacts."""
+
+from urllib.parse import urlsplit
 
 import streamlit as st
 
@@ -9,12 +11,42 @@ from documentation_assistant.frontend.reports import (
 )
 from documentation_assistant.frontend.sidebar import show_sidebar
 
-st.set_page_config(page_title="DAP Documentation Assistant", layout="wide")
+ABOUT = """## DAP Documentation Assistant
+
+AI-powered documentation assistant for school social workers, developed as a UMGC CMSC 495 capstone project.
+"""
+
+menu_items = {"About": ABOUT}
+# Use Streamlit's built-in Report a bug menu item to open team contacts.
+if app_url := st.context.url:
+    menu_items["Report a bug"] = (
+        urlsplit(app_url)._replace(query="view=contacts", fragment="").geturl()
+    )
+
+st.set_page_config(
+    page_title="DAP Documentation Assistant", layout="wide", menu_items=menu_items
+)
+
+# Serve the contacts page before rendering report navigation.
+if st.query_params.get("view") == "contacts":
+    st.title("Contacts")
+    st.markdown(
+        """
+- **Oliver Sung** — Lead Architect
+- **Robert Williams** — Interface Designer
+- **Mikia Robinson** — Integration Lead
+"""
+    )
+    if st.button("Back to reports", icon=":material/arrow_back:"):
+        del st.query_params["view"]
+        st.rerun()
+    st.stop()
 
 st.title("DAP Documentation Assistant")
 
 show_sidebar()
 
+# Consume the notice so it appears only on the next rerun.
 report_notice = st.session_state.pop("report_notice", None)
 if report_notice:
     st.success(report_notice)
@@ -22,6 +54,7 @@ if report_notice:
 if "report" in st.session_state:
     review_report(st.session_state["report"])
 elif pending_report_id := st.session_state.get("pending_report_id"):
+    # Reuse the saved report ID after the initial fetch fails.
     st.warning("Your draft was saved, but it could not be opened.")
     st.html("""
         <style>

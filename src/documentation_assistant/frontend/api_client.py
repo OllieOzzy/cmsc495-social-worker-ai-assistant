@@ -1,4 +1,4 @@
-"""Send requests to the FastAPI backend and display request errors."""
+"""Send report requests to FastAPI and check local Ollama reachability."""
 
 import os
 
@@ -9,8 +9,9 @@ API_URL = os.getenv("DAP_API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
 def ollama_is_reachable():
-    """Check whether the local Ollama server answers its model-list endpoint."""
+    """Return whether local Ollama responds with a model list, even if empty."""
     try:
+        # Bypass proxy settings for the loopback request.
         response = httpx.get(
             "http://127.0.0.1:11434/api/tags", timeout=3, trust_env=False
         )
@@ -22,13 +23,19 @@ def ollama_is_reachable():
 
 
 def request_api(method, path, *, payload=None, params=None, timeout=10, raw=False):
-    """Return the decoded data, the raw response, or True for an empty response."""
+    """Send a FastAPI request and show an error in Streamlit if it fails.
+
+    Return decoded JSON by default, the HTTP response when raw is True, or
+    True for a 204 response in JSON mode. Return None for handled HTTP and
+    connection errors.
+    """
     try:
         response = httpx.request(
             method, f"{API_URL}{path}", json=payload, params=params, timeout=timeout
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        # These responses explain a report conflict or a generation failure.
         if exc.response.status_code in (409, 502, 503, 504):
             st.error(exc.response.json()["detail"])
         else:
