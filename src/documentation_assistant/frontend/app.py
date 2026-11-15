@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from documentation_assistant.frontend.reports import new_report, review_report
+from documentation_assistant.frontend.reports import new_report, open_report, review_report
 from documentation_assistant.frontend.sidebar import show_sidebar
 
 st.set_page_config(page_title="DAP Documentation Assistant", layout="wide")
