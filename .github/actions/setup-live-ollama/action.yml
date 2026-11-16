@@ -1,5 +1,10 @@
-name: Set up live Ollama tests
-description: Install Python and Ollama, and start the server on Linux and macOS.
+name: Run live Ollama tests
+description: Install Ollama and its model, then run the selected test suite.
+
+inputs:
+  suite:
+    description: The live Ollama test suite to run (smoke or quality).
+    required: true
 
 runs:
   using: composite
@@ -54,20 +59,75 @@ runs:
         tar -xf $archive -C $installDir
         Remove-Item -LiteralPath $archive
 
-    - name: Start Ollama and prepare the model on Linux and macOS
-      if: runner.os != 'Windows'
+    - name: Start Ollama and run the selected test suite
       env:
         OLLAMA_MODELS: ${{ runner.temp }}/ollama-models
-      shell: bash
+        TEST_SUITE: ${{ inputs.suite }}
+      shell: pwsh
       run: |
-        ollama="$RUNNER_TEMP/ollama/ollama"
-        if [[ "$RUNNER_OS" == Linux ]]; then
-          ollama="$RUNNER_TEMP/ollama/bin/ollama"
-        fi
-        # Leave the server running for the test step. GitHub cleans it up at job end.
-        nohup "$ollama" serve < /dev/null > "$RUNNER_TEMP/ollama.log" 2>&1 &
-        curl --fail --silent --show-error --retry 15 --retry-connrefused \
-          --retry-delay 1 --max-time 5 http://127.0.0.1:11434/api/version
-        if ! "$ollama" show "$OLLAMA_MODEL" > /dev/null 2>&1; then
-          "$ollama" pull "$OLLAMA_MODEL"
-        fi
+        switch ($env:TEST_SUITE) {
+          'smoke' { $pytestArgs = @('tests/llm/test_live_ollama.py', '-v') }
+          'quality' { $pytestArgs = @('tests/llm/test_dap_quality.py', '-v', '-s') }
+          default { throw "Unknown live Ollama test suite: $env:TEST_SUITE" }
+        }
+        $executable = switch ($env:RUNNER_OS) {
+          'Linux' { 'ollama/bin/ollama' }
+          'Windows' { 'ollama/ollama.exe' }
+          'macOS' { 'ollama/ollama' }
+        }
+        $ollama = Join-Path $env:RUNNER_TEMP $executable
+        $serverArgs = @{
+          FilePath = $ollama
+          ArgumentList = 'serve'
+          PassThru = $true
+          RedirectStandardOutput = "$env:RUNNER_TEMP/ollama.stdout.log"
+          RedirectStandardError = "$env:RUNNER_TEMP/ollama.log"
+        }
+        if ($IsWindows) { $serverArgs.WindowStyle = 'Hidden' }
+
+        # Keep the server and pytest in the same runner step on every OS.
+        $server = Start-Process @serverArgs
+        $ollamaUrl = 'http://127.0.0.1:11434'
+        try {
+          $readyBy = (Get-Date).AddSeconds(30)
+          while ($true) {
+            if ($server.HasExited) { throw "Ollama exited during startup ($($server.ExitCode))." }
+            try {
+              Invoke-RestMethod "$ollamaUrl/api/version" -NoProxy `
+                -ConnectionTimeoutSeconds 2 -OperationTimeoutSeconds 2 | Out-Null
+              break
+            } catch {
+              if ((Get-Date) -ge $readyBy) { throw }
+              Start-Sleep -Milliseconds 500
+            }
+          }
+
+          # A missing model is expected on a cache miss.
+          $PSNativeCommandUseErrorActionPreference = $false
+          & $ollama show $env:OLLAMA_MODEL *> $null
+          if ($LASTEXITCODE -ne 0) {
+            & $ollama pull $env:OLLAMA_MODEL
+            if ($LASTEXITCODE -ne 0) { throw 'Ollama could not pull the test model.' }
+          }
+
+          # Preload with the app's context size before timing draft generation.
+          $preload = @{
+            model = $env:OLLAMA_MODEL
+            messages = @()
+            stream = $false
+            keep_alive = '10m'
+            options = @{ num_ctx = 8192 }
+          } | ConvertTo-Json -Depth 4 -Compress
+          Invoke-RestMethod "$ollamaUrl/api/chat" -NoProxy -Method Post -ContentType 'application/json' `
+            -Body $preload -ConnectionTimeoutSeconds 5 -OperationTimeoutSeconds 120 | Out-Null
+
+          python -m pytest @pytestArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        } finally {
+          if (!$server.HasExited) { Stop-Process -InputObject $server -ErrorAction SilentlyContinue }
+        }
+
+    - name: Show Ollama logs if the tests fail
+      if: failure()
+      shell: pwsh
+      run: Get-ChildItem "$env:RUNNER_TEMP/ollama*.log" | Get-Content

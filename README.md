@@ -214,9 +214,10 @@ flowchart TD
 To check actual model output, go to **Actions → Live Ollama Test → Run workflow**.
 The [live workflow](.github/workflows/live-ollama.yml) runs Ollama with
 `qwen3:4b` on Ubuntu, Windows, and macOS. The smoke tests run in parallel and
-verify that the backend can generate and save a draft. Select **Run the Ubuntu
-DAP quality cases after all smoke tests pass** to check generated sections
-against synthetic notes and print the drafts for review.
+verify that the backend can generate and save a draft. Each runner preloads the
+model before testing and uses the app's 240-second Ollama request timeout.
+Select **Run the Ubuntu DAP quality cases after all smoke tests pass** to check
+generated sections against synthetic notes and print the drafts for review.
 
 ### Run Python checks locally
 
