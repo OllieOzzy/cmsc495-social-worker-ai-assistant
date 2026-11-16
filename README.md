@@ -2,7 +2,43 @@
 
 AI-powered documentation assistant for school social workers, developed as a UMGC CMSC 495 capstone project.
 
-See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and model checks on Windows, macOS, and Linux.
+## Quick Start
+
+Install Python 3.12, then download `dap_app-1.0.0-py3-none-any.whl` from the
+**Assets** section of the [GitHub release](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases).
+Save the wheel in a folder you want to use for the app and open a terminal in
+that folder.
+
+### Windows PowerShell
+
+If you need Python 3.12, install the Python Install Manager, open a new
+PowerShell window, and run `py install 3.12`. [Python Install Manager guide](https://docs.python.org/3/using/windows.html#python-install-manager)
+
+Once `py -3.12 --version` shows Python 3.12, run the commands below. If
+`python --version` already shows Python 3.12, you can use
+`python -m venv .venv` for the first command instead.
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .\dap_app-1.0.0-py3-none-any.whl
+.\.venv\Scripts\dap-assistant.exe
+```
+
+### macOS and Linux
+
+```sh
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install ./dap_app-1.0.0-py3-none-any.whl
+./.venv/bin/dap-assistant
+```
+
+Open `http://127.0.0.1:8501` in your browser. Choose **Written by hand** to get
+started. For **AI-assisted draft**, start Ollama and install the default model
+with `ollama pull qwen3:8b`. Follow the [local Ollama setup guide](docs/local-llm-setup.md)
+for platform-specific instructions.
+
+The app saves reports in `data/dap.db` under the folder where you launched it.
+Press **Ctrl+C** in the launch terminal to stop the app.
 
 ## 🗂️ Repository Structure
 
