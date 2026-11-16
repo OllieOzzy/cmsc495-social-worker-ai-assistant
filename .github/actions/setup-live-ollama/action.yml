@@ -118,8 +118,9 @@ runs:
             keep_alive = '10m'
             options = @{ num_ctx = 8192 }
           } | ConvertTo-Json -Depth 4 -Compress
+          # PowerShell applies the connection timeout while awaiting the preload response.
           Invoke-RestMethod "$ollamaUrl/api/chat" -NoProxy -Method Post -ContentType 'application/json' `
-            -Body $preload -ConnectionTimeoutSeconds 5 -OperationTimeoutSeconds 120 | Out-Null
+            -Body $preload -ConnectionTimeoutSeconds 120 -OperationTimeoutSeconds 120 | Out-Null
 
           python -m pytest @pytestArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
