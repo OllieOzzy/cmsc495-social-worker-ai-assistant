@@ -25,7 +25,6 @@ See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and
 │   └── 📁 templates/
 │       └── 📋 School_Social_Work_DAP_Session_Note.pdf
 ├── 📁 scripts/
-│   ├── 🐍 ci_demo.py
 │   └── 🐍 preview_pdf.py
 ├── 📁 src/
 │   └── 📁 documentation_assistant/
@@ -66,7 +65,6 @@ See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and
 │           └── 🐍 sidebar.py
 └── 📁 tests/
     ├── 📁 integration/
-    │   ├── 🧪 test_ci_demo_cli.py
     │   ├── 🧪 test_health_api.py
     │   ├── 🧪 test_report_pdf.py
     │   └── 🧪 test_reports_api.py
@@ -74,7 +72,6 @@ See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and
     │   ├── 🧪 test_dap_quality.py
     │   └── 🧪 test_live_ollama.py
     └── 📁 unit/
-        ├── 🧪 test_ci_demo.py
         ├── 🧪 test_db_connection.py
         ├── 🧪 test_drafts.py
         ├── 🧪 test_health_handler.py
