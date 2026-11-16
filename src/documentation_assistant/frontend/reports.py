@@ -5,6 +5,8 @@ from email.message import Message
 
 import streamlit as st
 
+from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
+
 from .api_client import request_api
 from .forms import color_expander, session_details
 
@@ -14,6 +16,8 @@ DAP_FIELDS = {
     "plan": "P: Plan (next steps, referrals, next session)",
 }
 DRAFT_SOURCE_LABELS = {"handwritten": "Written by hand", "ai_assisted": "AI-assisted"}
+# Give FastAPI time to return the result after Ollama finishes or times out.
+_GENERATION_API_TIMEOUT = OLLAMA_REQUEST_TIMEOUT_SECONDS + 15
 
 
 def show_saved_report(report):
@@ -96,7 +100,10 @@ def new_report():
         else:
             with st.spinner("Regenerating draft…"):
                 updated = request_api(
-                    "POST", f"{path}/regenerate", payload=payload, timeout=135
+                    "POST",
+                    f"{path}/regenerate",
+                    payload=payload,
+                    timeout=_GENERATION_API_TIMEOUT,
                 )
         if updated is not None:
             st.session_state.pop("note_entry")
@@ -112,7 +119,12 @@ def new_report():
         return
 
     with st.spinner("Generating draft…"):
-        draft = request_api("POST", "/reports/generate", payload=payload, timeout=135)
+        draft = request_api(
+            "POST",
+            "/reports/generate",
+            payload=payload,
+            timeout=_GENERATION_API_TIMEOUT,
+        )
     if draft is not None:
         # Keep the saved ID so a failed fetch can be retried without saving again.
         report_id = draft["report_id"]

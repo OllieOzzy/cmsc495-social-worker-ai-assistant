@@ -5,6 +5,7 @@ from pathlib import Path
 
 import httpx
 
+from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 from documentation_assistant.backend.schemas.reports import DAPSections
 
 # Load the prompt once when the backend imports this module.
@@ -24,7 +25,9 @@ async def generate_dap(notes: str) -> DAPSections:
     The reviewer checks the draft's accuracy against the source notes.
     """
     # Connect directly to Ollama on loopback, bypassing proxy settings.
-    async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
+    async with httpx.AsyncClient(
+        timeout=OLLAMA_REQUEST_TIMEOUT_SECONDS, trust_env=False
+    ) as client:
         response = await client.post(
             "http://127.0.0.1:11434/api/chat",
             json={

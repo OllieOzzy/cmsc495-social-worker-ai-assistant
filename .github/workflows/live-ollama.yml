@@ -30,15 +30,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Set up live Ollama tests
-        uses: ./.github/actions/setup-live-ollama
       - name: Run Ollama smoke test
-        run: python -m pytest tests/llm/test_live_ollama.py -v
-      - name: Show Ollama logs if the job fails
-        if: failure()
-        shell: pwsh
-        run: |
-          Get-ChildItem "$env:RUNNER_TEMP/ollama*.log" | Get-Content
+        uses: ./.github/actions/setup-live-ollama
+        with:
+          suite: smoke
 
   dap-quality-tests:
     name: DAP Quality Tests
@@ -51,13 +46,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Set up live Ollama tests
-        uses: ./.github/actions/setup-live-ollama
       - name: Run DAP quality tests
-        run: python -m pytest tests/llm/test_dap_quality.py -v -s
-      - name: Show Ollama logs if the job fails
-        if: failure()
-        run: |
-          if [[ -f "$RUNNER_TEMP/ollama.log" ]]; then
-            cat "$RUNNER_TEMP/ollama.log"
-          fi
+        uses: ./.github/actions/setup-live-ollama
+        with:
+          suite: quality
