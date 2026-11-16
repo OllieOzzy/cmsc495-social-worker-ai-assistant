@@ -21,7 +21,7 @@ def create_app() -> FastAPI:
             "The API supports creating, reviewing, and approving DAP session notes "
             "for school social work."
         ),
-        version="0.1.0",
+        version="1.0.0",
     )
     # Resolve relative database paths against the process working directory.
     application.state.database_path = Path(

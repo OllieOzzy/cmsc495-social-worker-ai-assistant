@@ -1,4 +1,5 @@
-# cmsc495-social-worker-ai-assistant
+# DAP Documentation Assistant
+
 AI-powered documentation assistant for school social workers, developed as a UMGC CMSC 495 capstone project.
 
 See the [local Ollama setup guide](docs/local-llm-setup.md) for installation and model checks on Windows, macOS, and Linux.
@@ -140,10 +141,17 @@ manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 | 8 | Unit Tests | Pytest checks individual pieces, including report validation and Ollama response parsing. |
 | 9 | Integration Tests | Pytest checks workflows such as saving reports in SQLite and downloading PDFs through FastAPI. |
 | 10 | Coverage Report | Combines unit and integration coverage, publishes the report in the run summary, and fails below 90% backend coverage. |
+| 11 | Build Wheel | Builds one wheel for the validation jobs. |
+| 12 | Validate Wheel | Installs the wheel on Ubuntu, Windows, and macOS with Python 3.12 and checks that the installed app can save a draft and export a PDF. |
+| 13 | Upload Validated Wheel | Adds the versioned ZIP to successful pull request runs targeting `main` and manual runs on `main`. |
 
 Each job waits for its prerequisite jobs to pass. The regular pipeline uses
 synthetic data and mocks Ollama responses where needed, so it runs without
 Ollama or a GPU. View the results under **Actions → CI Pipeline**.
+
+To prepare a release, run **CI Pipeline** manually on `main`. After the wheel
+checks pass, download `dap-app-<version>` from **Artifacts** and extract the
+`.whl` for the GitHub Release.
 
 ### Live Ollama tests
 
@@ -168,3 +176,10 @@ python -m pytest tests/integration -v
 
 For live model tests on your own machine, follow the
 [backend test instructions](src/documentation_assistant/backend/README.md#tests).
+
+## Upcoming release 1.1.0
+
+- **Document scanning with OCR.** Extract text from scanned documents and review
+  it before using it as session notes in the app.
+- **Docker Compose setup.** Run the Streamlit frontend, FastAPI backend, and
+  Ollama as separate containers on one machine.

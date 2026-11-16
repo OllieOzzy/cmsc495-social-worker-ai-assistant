@@ -3,8 +3,8 @@ requires = ["setuptools>=70.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cmsc495-social-worker-ai-assistant"
-version = "0.1.0"
+name = "dap-app"
+version = "1.0.0"
 description = "A local DAP documentation assistant for school social workers."
 readme = "README.md"
 requires-python = ">=3.12"

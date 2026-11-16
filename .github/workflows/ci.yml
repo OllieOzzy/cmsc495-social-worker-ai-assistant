@@ -236,6 +236,8 @@ jobs:
     needs: coverage
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    outputs:
+      artifact-name: ${{ steps.wheel-name.outputs.artifact-name }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -245,6 +247,18 @@ jobs:
           python-version: '3.12'
       - name: Build the application wheel
         run: python -m pip wheel --no-deps --wheel-dir dist .
+      - name: Name the release artifact from the project version
+        id: wheel-name
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+
+          with open("pyproject.toml", "rb") as config:
+              project = tomllib.load(config)["project"]
+
+          print(f"artifact-name={project['name']}-{project['version']}")
+          PY
       - name: Upload the wheel for validation
         uses: actions/upload-artifact@v6
         with:
@@ -285,10 +299,13 @@ jobs:
           & $python -m pip check
           & $python -I tests/packaging/check_installed_wheel.py
 
-  # Make the tested wheel available for a manual GitHub Release.
+  # Upload the release artifact for pull requests to main and manual runs on main.
   upload-wheel:
     name: Upload Validated Wheel
-    needs: validate-wheel
+    needs: [build-wheel, validate-wheel]
+    if: >-
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -300,6 +317,6 @@ jobs:
       - name: Upload the release artifact
         uses: actions/upload-artifact@v6
         with:
-          name: app-wheel
+          name: ${{ needs.build-wheel.outputs.artifact-name }}
           path: dist/*.whl
           if-no-files-found: error
