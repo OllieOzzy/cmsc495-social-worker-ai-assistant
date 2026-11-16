@@ -1,3 +1,34 @@
+[build-system]
+requires = ["setuptools>=70.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dap-app"
+version = "1.0.0"
+description = "A local DAP documentation assistant for school social workers."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.162.2",
+    "httpx==0.28.1",
+    "pydantic==2.14.3",
+    "pypdf==7.0.1",
+    "reportlab==5.1.0",
+    "streamlit==1.67.0",
+    "uvicorn==0.54.0",
+]
+
+[project.scripts]
+dap-assistant = "documentation_assistant.launcher:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"documentation_assistant.backend.export" = ["templates/School_Social_Work_DAP_Session_Note.pdf"]
+"documentation_assistant.backend.llm" = ["prompts/dap_generation.txt"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 88

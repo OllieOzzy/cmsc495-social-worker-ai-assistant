@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_quality_tests:
-        description: Run the DAP quality cases after the smoke test
+        description: Run the Ubuntu DAP quality cases alongside the smoke tests
         type: boolean
         default: false
 
@@ -18,9 +18,13 @@ env:
 
 jobs:
   smoke-test:
-    name: Smoke Test
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    name: Smoke Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
 
     steps:
       - uses: actions/checkout@v7
@@ -32,14 +36,12 @@ jobs:
         run: python -m pytest tests/llm/test_live_ollama.py -v
       - name: Show Ollama logs if the job fails
         if: failure()
+        shell: pwsh
         run: |
-          if [[ -f "$RUNNER_TEMP/ollama.log" ]]; then
-            cat "$RUNNER_TEMP/ollama.log"
-          fi
+          Get-ChildItem "$env:RUNNER_TEMP/ollama*.log" | Get-Content
 
   dap-quality-tests:
     name: DAP Quality Tests
-    needs: smoke-test
     if: ${{ inputs.run_quality_tests }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15

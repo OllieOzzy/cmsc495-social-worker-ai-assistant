@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# Each job uses needs to wait for the earlier checks to pass.
+# Independent checks run in parallel. The wheel build waits for all of them.
 jobs:
   # Catch mistakes in GitHub Actions settings, expressions, and job dependencies.
   workflow-lint:
@@ -37,7 +37,6 @@ jobs:
   # Check YAML formatting in both workflows and shared actions under .github.
   workflow-formatting:
     name: Workflow Formatting
-    needs: workflow-lint
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -52,7 +51,6 @@ jobs:
   # Scan the GitHub Actions files for security issues.
   workflow-security:
     name: Workflow Security
-    needs: workflow-formatting
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -74,7 +72,6 @@ jobs:
   # Use Ruff to check Python for problems like unused imports.
   lint:
     name: Python Linting
-    needs: workflow-security
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -94,7 +91,6 @@ jobs:
   # Check that Python files follow Ruff's formatting rules.
   formatting:
     name: Python Formatting
-    needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -112,7 +108,6 @@ jobs:
   # Bandit looks for common security issues in our backend code.
   python-security:
     name: Python Security
-    needs: formatting
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -130,7 +125,6 @@ jobs:
   # Check our Python packages and their dependencies for known vulnerabilities.
   dependency-security:
     name: Dependency Security
-    needs: python-security
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -148,7 +142,6 @@ jobs:
   # Run tests for individual pieces of code and save their coverage data.
   unit:
     name: Unit Tests
-    needs: dependency-security
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -176,7 +169,6 @@ jobs:
   # Check how backend parts work together and save coverage separately.
   integration:
     name: Integration Tests
-    needs: unit
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -229,3 +221,102 @@ jobs:
           # Publish the report even when coverage falls below 90% and fails the job.
           python -m coverage report --show-missing --precision=2 --fail-under=90 \
             --format=markdown >> "$GITHUB_STEP_SUMMARY"
+
+  # Build once so all three runners test the same wheel.
+  build-wheel:
+    name: Build Wheel
+    needs:
+      - workflow-lint
+      - workflow-formatting
+      - workflow-security
+      - lint
+      - formatting
+      - python-security
+      - dependency-security
+      - coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      artifact-name: ${{ steps.wheel-name.outputs.artifact-name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build the application wheel
+        run: python -m pip wheel --no-deps --wheel-dir dist .
+      - name: Name the release artifact from the project version
+        id: wheel-name
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+
+          with open("pyproject.toml", "rb") as config:
+              project = tomllib.load(config)["project"]
+
+          print(f"artifact-name={project['name']}-{project['version']}")
+          PY
+      - name: Upload the wheel for validation
+        uses: actions/upload-artifact@v6
+        with:
+          name: app-wheel-candidate
+          path: dist/*.whl
+          if-no-files-found: error
+
+  validate-wheel:
+    name: Validate Wheel (${{ matrix.os }})
+    needs: build-wheel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Download the built wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: app-wheel-candidate
+          path: dist
+      - name: Install and exercise the wheel in a fresh environment
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $venv = Join-Path $env:RUNNER_TEMP 'wheel-venv'
+          python -m venv $venv
+          $python = Join-Path $venv $(if ($IsWindows) { 'Scripts/python.exe' } else { 'bin/python' })
+          $wheel = Get-Item dist/*.whl
+          & $python -m pip install $wheel.FullName
+          & $python -m pip check
+          & $python -I tests/packaging/check_installed_wheel.py
+
+  # Upload the release artifact for pull requests to main and manual runs on main.
+  upload-wheel:
+    name: Upload Validated Wheel
+    needs: [build-wheel, validate-wheel]
+    if: >-
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Download the validated wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: app-wheel-candidate
+          path: dist
+      - name: Upload the release artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ needs.build-wheel.outputs.artifact-name }}
+          path: dist/*.whl
+          if-no-files-found: error

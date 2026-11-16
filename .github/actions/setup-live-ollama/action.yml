@@ -22,23 +22,48 @@ runs:
 
     - name: Install Ollama on cache miss
       if: steps.ollama-cache.outputs.cache-hit != 'true'
-      shell: bash
+      shell: pwsh
       run: |
-        archive="$RUNNER_TEMP/ollama-linux-amd64.tar.zst"
-        curl --fail --silent --show-error --location --retry 3 \
-          "https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}/ollama-linux-amd64.tar.zst" \
-          --output "$archive"
-        echo "87bfafb2acbc89b2e6a1be0a9043de6aa75fb450696f86bc426e65fc448f788d  $archive" | sha256sum --check
-        mkdir -p "$RUNNER_TEMP/ollama"
-        tar --zstd -xf "$archive" -C "$RUNNER_TEMP/ollama"
-        rm -- "$archive"
+        $PSNativeCommandUseErrorActionPreference = $true
+        $ProgressPreference = 'SilentlyContinue'
+        # Match the official release asset and checksum to the runner OS.
+        switch ($env:RUNNER_OS) {
+          'Linux' {
+            $asset = 'ollama-linux-amd64.tar.zst'
+            $sha256 = '87bfafb2acbc89b2e6a1be0a9043de6aa75fb450696f86bc426e65fc448f788d'
+          }
+          'Windows' {
+            $asset = 'ollama-windows-amd64.zip'
+            $sha256 = '50fcf5ad54277f2fa5d173ebfc93bcb017adbc0c9ef2314daabc96ca9e6aa64e'
+          }
+          'macOS' {
+            $asset = 'ollama-darwin.tgz'
+            $sha256 = 'a743717494315da7cd352982b805f6b992d4b4452ca117fd5fbf86c4ee46fca0'
+          }
+          default { throw "Unsupported Ollama runner OS $env:RUNNER_OS" }
+        }
 
-    - name: Start Ollama and prepare the model
+        $archive = Join-Path $env:RUNNER_TEMP $asset
+        $url = "https://github.com/ollama/ollama/releases/download/v$env:OLLAMA_VERSION/$asset"
+        Invoke-WebRequest -Uri $url -OutFile $archive -MaximumRetryCount 3 -RetryIntervalSec 2
+        if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $sha256) {
+          throw "The Ollama archive checksum did not match for $asset."
+        }
+        $installDir = Join-Path $env:RUNNER_TEMP 'ollama'
+        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+        tar -xf $archive -C $installDir
+        Remove-Item -LiteralPath $archive
+
+    - name: Start Ollama and prepare the model on Linux and macOS
+      if: runner.os != 'Windows'
       env:
         OLLAMA_MODELS: ${{ runner.temp }}/ollama-models
       shell: bash
       run: |
-        ollama="$RUNNER_TEMP/ollama/bin/ollama"
+        ollama="$RUNNER_TEMP/ollama/ollama"
+        if [[ "$RUNNER_OS" == Linux ]]; then
+          ollama="$RUNNER_TEMP/ollama/bin/ollama"
+        fi
         # Leave the server running for the test step. GitHub cleans it up at job end.
         nohup "$ollama" serve < /dev/null > "$RUNNER_TEMP/ollama.log" 2>&1 &
         curl --fail --silent --show-error --retry 15 --retry-connrefused \
@@ -46,3 +71,19 @@ runs:
         if ! "$ollama" show "$OLLAMA_MODEL" > /dev/null 2>&1; then
           "$ollama" pull "$OLLAMA_MODEL"
         fi
+
+    - name: Start Ollama and prepare the model on Windows
+      if: runner.os == 'Windows'
+      env:
+        OLLAMA_MODELS: ${{ runner.temp }}/ollama-models
+      shell: pwsh
+      run: |
+        $ollama = Join-Path $env:RUNNER_TEMP 'ollama/ollama.exe'
+        Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden `
+          -RedirectStandardOutput "$env:RUNNER_TEMP/ollama.stdout.log" `
+          -RedirectStandardError "$env:RUNNER_TEMP/ollama.log"
+        curl.exe --fail --silent --show-error --retry 15 --retry-connrefused `
+          --retry-delay 1 --max-time 5 http://127.0.0.1:11434/api/version
+        if ($LASTEXITCODE -ne 0) { throw 'Ollama did not become ready.' }
+        & $ollama show $env:OLLAMA_MODEL *> $null
+        if ($LASTEXITCODE -ne 0) { & $ollama pull $env:OLLAMA_MODEL }
