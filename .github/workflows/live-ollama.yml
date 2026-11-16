@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       run_quality_tests:
-        description: Run the Ubuntu DAP quality cases alongside the smoke tests
+        description: Run the Ubuntu DAP quality cases after all smoke tests pass
         type: boolean
         default: false
 
@@ -42,6 +42,7 @@ jobs:
 
   dap-quality-tests:
     name: DAP Quality Tests
+    needs: smoke-test
     if: ${{ inputs.run_quality_tests }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15

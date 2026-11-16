@@ -197,23 +197,26 @@ flowchart TD
     Start --> Ubuntu["Ubuntu smoke test"]
     Start --> Windows["Windows smoke test"]
     Start --> Mac["macOS smoke test"]
-    Start -->|"If quality tests are selected"| Quality["Ubuntu DAP quality tests"]
+    Ubuntu --> Passed["All smoke tests pass"]
+    Windows --> Passed
+    Mac --> Passed
+    Passed -->|"If quality tests are selected"| Quality["Ubuntu DAP quality tests"]
 
     classDef trigger fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:2px
     classDef smoke fill:#CCFBF1,stroke:#0F766E,color:#134E4A,stroke-width:2px
     classDef quality fill:#FEF3C7,stroke:#B45309,color:#78350F,stroke-width:2px
 
     class Start trigger
-    class Ubuntu,Windows,Mac smoke
+    class Ubuntu,Windows,Mac,Passed smoke
     class Quality quality
 ```
 
 To check actual model output, go to **Actions → Live Ollama Test → Run workflow**.
 The [live workflow](.github/workflows/live-ollama.yml) runs Ollama with
-`qwen3:4b` on Ubuntu, Windows, and macOS. Each smoke test verifies that the
-backend can generate and save a draft. Select **Run the Ubuntu DAP quality cases
-alongside the smoke tests** to check generated sections against synthetic notes
-and print the drafts for review. The quality job runs independently on Ubuntu.
+`qwen3:4b` on Ubuntu, Windows, and macOS. The smoke tests run in parallel and
+verify that the backend can generate and save a draft. Select **Run the Ubuntu
+DAP quality cases after all smoke tests pass** to check generated sections
+against synthetic notes and print the drafts for review.
 
 ### Run Python checks locally
 
