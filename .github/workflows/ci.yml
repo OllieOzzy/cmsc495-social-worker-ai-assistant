@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 
-# Each job uses needs to wait for the earlier checks to pass.
+# Independent checks run in parallel. The wheel build waits for all of them.
 jobs:
   # Catch mistakes in GitHub Actions settings, expressions, and job dependencies.
   workflow-lint:
@@ -37,7 +37,6 @@ jobs:
   # Check YAML formatting in both workflows and shared actions under .github.
   workflow-formatting:
     name: Workflow Formatting
-    needs: workflow-lint
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -52,7 +51,6 @@ jobs:
   # Scan the GitHub Actions files for security issues.
   workflow-security:
     name: Workflow Security
-    needs: workflow-formatting
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -74,7 +72,6 @@ jobs:
   # Use Ruff to check Python for problems like unused imports.
   lint:
     name: Python Linting
-    needs: workflow-security
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -94,7 +91,6 @@ jobs:
   # Check that Python files follow Ruff's formatting rules.
   formatting:
     name: Python Formatting
-    needs: lint
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -112,7 +108,6 @@ jobs:
   # Bandit looks for common security issues in our backend code.
   python-security:
     name: Python Security
-    needs: formatting
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -130,7 +125,6 @@ jobs:
   # Check our Python packages and their dependencies for known vulnerabilities.
   dependency-security:
     name: Dependency Security
-    needs: python-security
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -148,7 +142,6 @@ jobs:
   # Run tests for individual pieces of code and save their coverage data.
   unit:
     name: Unit Tests
-    needs: dependency-security
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -176,7 +169,6 @@ jobs:
   # Check how backend parts work together and save coverage separately.
   integration:
     name: Integration Tests
-    needs: unit
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -233,7 +225,15 @@ jobs:
   # Build once so all three runners test the same wheel.
   build-wheel:
     name: Build Wheel
-    needs: coverage
+    needs:
+      - workflow-lint
+      - workflow-formatting
+      - workflow-security
+      - lint
+      - formatting
+      - python-security
+      - dependency-security
+      - coverage
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
