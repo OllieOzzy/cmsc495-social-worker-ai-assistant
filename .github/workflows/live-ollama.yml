@@ -33,7 +33,35 @@ jobs:
       - name: Set up live Ollama tests
         uses: ./.github/actions/setup-live-ollama
       - name: Run Ollama smoke test
+        if: runner.os != 'Windows'
         run: python -m pytest tests/llm/test_live_ollama.py -v
+      - name: Start Ollama and run the smoke test on Windows
+        if: runner.os == 'Windows'
+        env:
+          OLLAMA_MODELS: ${{ runner.temp }}/ollama-models
+        shell: pwsh
+        run: |
+          $ollama = Join-Path $env:RUNNER_TEMP 'ollama/ollama.exe'
+          # Keep the server and the smoke test in the same Windows runner step.
+          $server = Start-Process -FilePath $ollama -ArgumentList 'serve' -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput "$env:RUNNER_TEMP/ollama.stdout.log" `
+            -RedirectStandardError "$env:RUNNER_TEMP/ollama.log"
+          try {
+            curl.exe --fail --silent --show-error --retry 15 --retry-connrefused `
+              --retry-delay 1 --max-time 5 http://127.0.0.1:11434/api/version
+            if ($LASTEXITCODE -ne 0) { throw 'Ollama did not become ready.' }
+
+            & $ollama show $env:OLLAMA_MODEL *> $null
+            if ($LASTEXITCODE -ne 0) {
+              & $ollama pull $env:OLLAMA_MODEL
+              if ($LASTEXITCODE -ne 0) { throw 'Ollama could not pull the test model.' }
+            }
+
+            python -m pytest tests/llm/test_live_ollama.py -v
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            if (!$server.HasExited) { Stop-Process -InputObject $server }
+          }
       - name: Show Ollama logs if the job fails
         if: failure()
         shell: pwsh
