@@ -80,22 +80,7 @@ def stop_launcher(process: subprocess.Popen) -> None:
                 check=False,
                 timeout=10,
             )
-        venv_python = str(Path(sys.executable).resolve()).replace("'", "''")
-        subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                f"Get-CimInstance Win32_Process -Filter \"Name = 'python.exe'\" | "
-                f"Where-Object {{ $_.ExecutablePath -eq '{venv_python}' -and $_.ProcessId -ne {os.getpid()} }} | "
-                f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
-            ],
-            capture_output=True,
-            check=False,
-            timeout=10,
-        )
         process.wait(timeout=10)
-        sleep(0.2)
     else:
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGTERM)
@@ -118,26 +103,23 @@ def main() -> None:
             "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
         }
         env.pop("PYTHONPATH", None)
-        log_path = workdir / "launcher.log"
-        with log_path.open("wb") as log:
-            process = subprocess.Popen(
-                [str(command)],
-                cwd=workdir,
-                env=env,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                creationflags=subprocess.CREATE_NO_WINDOW if windows else 0,
-                start_new_session=not windows,
-            )
-            try:
-                with httpx.Client(timeout=5, trust_env=False) as client:
-                    wait_for_servers(process, client)
-                    check_handwritten_report(client)
-            except Exception:
-                print(log_path.read_text(encoding="utf-8", errors="replace"))
-                raise
-            finally:
-                stop_launcher(process)
+        # Keep launcher output in the CI log. On Windows, child processes can
+        # keep an inherited log file open and block temporary directory cleanup.
+        process = subprocess.Popen(
+            [str(command)],
+            cwd=workdir,
+            env=env,
+            stdout=sys.stdout,
+            stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW if windows else 0,
+            start_new_session=not windows,
+        )
+        try:
+            with httpx.Client(timeout=5, trust_env=False) as client:
+                wait_for_servers(process, client)
+                check_handwritten_report(client)
+        finally:
+            stop_launcher(process)
     print(
         "Installed dap-assistant started both servers, saved a draft, and exported a PDF."
     )
