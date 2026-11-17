@@ -4,6 +4,8 @@ AI-powered documentation assistant for school social workers, developed as a UMG
 
 ## Quick Start
 
+[Demo Video](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.0.0/demo.mp4)
+
 Install Python 3.12, then download `dap_app-1.0.0-py3-none-any.whl` from the
 **Assets** section of the [GitHub release](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases).
 Save the wheel in a folder you want to use for the app and open a terminal in
@@ -248,12 +250,48 @@ flowchart TD
 ```
 
 To check actual model output, go to **Actions → Live Ollama Test → Run workflow**.
-The [live workflow](.github/workflows/live-ollama.yml) runs Ollama with
-`qwen3:4b` on Ubuntu, Windows, and macOS. The smoke tests run in parallel and
-verify that the backend can generate and save a draft. Each runner preloads the
-model before testing and uses the app's 240-second Ollama request timeout.
-Select **Run the Ubuntu DAP quality cases after all smoke tests pass** to check
-generated sections against synthetic notes and print the drafts for review.
+The [live workflow](.github/workflows/live-ollama.yml) is started manually and
+runs Ollama with `qwen3:4b`. It has two kinds of tests: smoke tests for basic
+compatibility and optional quality tests for generated report content.
+
+#### Smoke tests on Ubuntu, Windows, and macOS
+
+The workflow starts three independent jobs in parallel, one for each operating
+system. Each job uses the [shared setup action](.github/actions/setup-live-ollama/action.yml)
+to install Python dependencies, restore cached Ollama and model files when
+available, and download missing files. New Ollama downloads are checked against
+a SHA-256 checksum. The action starts a real Ollama server on the runner and
+preloads the model before running the test.
+
+The [smoke test](tests/llm/test_live_ollama.py) then checks the following workflow:
+
+1. Create a temporary SQLite database and a FastAPI app instance using the real
+   backend code. FastAPI's test client calls the app inside the test process;
+   no separate backend web server is needed.
+2. Send synthetic session notes to `/reports/generate`. The backend calls the
+   real Ollama server using the app's 240-second request timeout.
+3. Check that the request succeeds and returns an unapproved draft with nonempty
+   Data, Assessment, and Plan sections. For these notes, the Plan must say
+   `Not documented.` because no follow-up plan was provided.
+4. Create a new app instance using the same temporary database and retrieve the
+   report by its ID. Check that the notes and generated sections were saved
+   correctly, the status is still `draft`, and no approval timestamp is set.
+
+Running this same test on all three systems helps catch differences in setup,
+paths, startup commands, and backend integration. It verifies more than whether
+Ollama starts: the app must generate, save, and retrieve a draft successfully.
+Each job has its own temporary environment and database; it does not use your
+local reports or deploy a permanent service. The test does not exercise the
+Streamlit interface or fully evaluate report quality.
+
+#### Optional DAP quality tests
+
+Select **Run the Ubuntu DAP quality cases after all smoke tests pass** when
+starting the workflow to check generated sections against synthetic notes and
+print the drafts for review. This separate job runs only on Ubuntu, after all
+three smoke tests pass, and uses the same setup action to prepare Ollama. Its
+purpose is to examine report content in more detail, while the smoke tests
+check the basic backend workflow across the supported operating systems.
 
 ### Run Python checks locally
 
