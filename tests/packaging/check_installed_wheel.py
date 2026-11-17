@@ -80,10 +80,26 @@ def stop_launcher(process: subprocess.Popen) -> None:
                 check=False,
                 timeout=10,
             )
+        venv_python = str(Path(sys.executable).resolve()).replace("'", "''")
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                f"Get-CimInstance Win32_Process -Filter \"Name = 'python.exe'\" | "
+                f"Where-Object {{ $_.ExecutablePath -eq '{venv_python}' -and $_.ProcessId -ne {os.getpid()} }} | "
+                f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}",
+            ],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        process.wait(timeout=10)
+        sleep(0.2)
     else:
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGTERM)
-    process.wait(timeout=10)
+        process.wait(timeout=10)
 
 
 def main() -> None:
