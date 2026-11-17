@@ -2,6 +2,11 @@
 
 AI-powered documentation assistant for school social workers, developed as a UMGC CMSC 495 capstone project.
 
+### Group 6
+- **Oliver Sung** — Lead Architect
+- **Robert Williams** — Interface Designer
+- **Mikia Robinson** — Integration Lead
+
 ## Quick Start
 
 [Download and Watch the Demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.0.0/demo.mp4)
@@ -308,8 +313,26 @@ python -m pytest tests/integration -v
 For live model tests on your own machine, follow the
 [backend test instructions](src/documentation_assistant/backend/README.md#tests).
 
+## References
+
+Official repositories and documentation for the tools used in this project:
+
+- [Ollama](https://github.com/ollama/ollama) — Running local language models for DAP draft generation.
+- [Streamlit documentation](https://docs.streamlit.io/) — Building the frontend, forms, and report review screens.
+- [FastAPI documentation](https://fastapi.tiangolo.com/) — Creating backend API endpoints and handling requests.
+- [SQLite documentation](https://www.sqlite.org/docs.html) — Storing and retrieving reports locally.
+- [Pydantic documentation](https://docs.pydantic.dev/latest/) — Defining data models and validating report inputs.
+- [HTTPX documentation](https://www.python-httpx.org/) — Sending HTTP requests between application components.
+- [ReportLab documentation](https://docs.reportlab.com/) — Generating PDF report content.
+- [pypdf documentation](https://pypdf.readthedocs.io/en/stable/) — Working with PDF files and templates.
+- [pytest documentation](https://docs.pytest.org/en/stable/) — Writing and running automated tests.
+- [GitHub Actions documentation](https://docs.github.com/en/actions) — Configuring CI workflows and automated checks.
+- [Ruff documentation](https://docs.astral.sh/ruff/) — Checking Python code quality and formatting.
+
 ## Upcoming release 1.1.0
 
+- **Automated frontend tests.** Test Streamlit form validation, report review
+  actions, and error messages when backend requests fail.
 - **Document scanning with OCR.** Extract text from scanned documents and review
   it before using it as session notes in the app.
 - **Docker Compose setup.** Run the Streamlit frontend, FastAPI backend, and
