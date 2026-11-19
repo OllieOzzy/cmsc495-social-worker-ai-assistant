@@ -325,3 +325,77 @@ def test_stale_save_preserves_local_edits_and_current_database_version(backend_f
             == pending_sections[field]
         )
     assert backend.get(path).raise_for_status().json() == latest
+
+
+def test_confirmed_draft_deletion_clears_review_and_refreshes_history(backend_for_ui):
+    """Require confirmation, remove the selected draft, and retain the other report."""
+    backend = backend_for_ui
+    selected = (
+        backend.post("/reports/manual", json={"notes": "Synthetic draft to delete."})
+        .raise_for_status()
+        .json()
+    )
+    retained = (
+        backend.post("/reports/manual", json={"notes": "Synthetic draft to retain."})
+        .raise_for_status()
+        .json()
+    )
+    path = f"/reports/{selected['report_id']}"
+    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    assert not app.exception, app.exception
+    next(widget for widget in app.sidebar.selectbox if widget.label == "Report").select(
+        selected["report_id"]
+    )
+    next(
+        button for button in app.sidebar.button if button.label == "Open report"
+    ).click().run()
+    assert not app.exception, app.exception
+    assert app.session_state["report"]["report_id"] == selected["report_id"]
+
+    next(
+        button for button in app.button if button.label == "Delete draft"
+    ).click().run()
+
+    assert not app.exception, app.exception
+    assert any(
+        error.value == "Confirm that you want to delete this draft."
+        for error in app.error
+    )
+    assert backend.get(path).raise_for_status().json() == selected
+    assert app.session_state["report"]["report_id"] == selected["report_id"]
+
+    next(
+        widget
+        for widget in app.checkbox
+        if widget.label == "I understand this permanently deletes the draft"
+    ).check()
+    next(
+        button for button in app.button if button.label == "Delete draft"
+    ).click().run()
+
+    assert not app.exception, app.exception
+    assert not app.error
+    assert backend.get(path).status_code == 404
+    assert (
+        backend.get(f"/reports/{retained['report_id']}").raise_for_status().json()
+        == retained
+    )
+    assert "report" not in app.session_state
+    assert "note_entry" not in app.session_state
+    assert "pending_report_id" not in app.session_state
+    assert any(message.value == "Draft deleted." for message in app.success)
+    assert (
+        next(
+            widget for widget in app.text_area if "Session Notes" in widget.label
+        ).value
+        == ""
+    )
+    assert any(button.label == "Written by hand" for button in app.button)
+    picker = next(
+        widget for widget in app.sidebar.selectbox if widget.label == "Report"
+    )
+    assert picker.value == retained["report_id"]
+    assert len(picker.options) == 1
+    assert {
+        item["report_id"] for item in backend.get("/reports").raise_for_status().json()
+    } == {retained["report_id"]}
