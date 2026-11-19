@@ -7,12 +7,14 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime
 from threading import Event
+from unittest.mock import Mock
 from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 from documentation_assistant.backend.main import create_app
 from documentation_assistant.backend.schemas.reports import SavedReportMetadata
 
@@ -121,6 +123,68 @@ def test_history_rejects_invalid_pagination(app, params):
     """Reject invalid bounds before SQLite executes a history query."""
     with TestClient(app) as client:
         assert client.get("/reports", params=params).status_code == 422
+
+
+def test_ollama_client_is_reused_after_failure_and_closed_on_shutdown(
+    app, mock_ollama, monkeypatch
+):
+    """One startup client serves generation and regeneration, including retries."""
+    calls = 0
+
+    def reply(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ConnectError("Ollama is offline.", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "data": NOTES,
+                            "assessment": "Not documented.",
+                            "plan": "Not documented.",
+                        }
+                    )
+                },
+            },
+        )
+
+    mock_ollama(reply)
+    factory = Mock(wraps=httpx.AsyncClient)
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+
+    with TestClient(app) as client:
+        pooled_client = app.state.ollama_client
+        assert not pooled_client.is_closed
+        # Client creation itself makes no request, so manual use remains offline-capable.
+        assert calls == 0
+        assert (
+            client.post("/reports/generate", json={"notes": NOTES}).status_code == 503
+        )
+        generated = client.post("/reports/generate", json={"notes": NOTES})
+        assert generated.status_code == 200
+        report_id = generated.json()["report_id"]
+        regenerated = client.post(
+            f"/reports/{report_id}/regenerate", json={"revision": 1, "notes": NOTES}
+        )
+        assert regenerated.status_code == 200
+        assert app.state.ollama_client is pooled_client
+        assert not pooled_client.is_closed
+        factory.assert_called_once_with(
+            timeout=OLLAMA_REQUEST_TIMEOUT_SECONDS, trust_env=False
+        )
+
+    assert calls == 3
+    assert pooled_client.is_closed
+
+    # A later startup gets a new client rather than retaining a closed connection pool.
+    with TestClient(app):
+        assert app.state.ollama_client is not pooled_client
+        assert not app.state.ollama_client.is_closed
+    assert app.state.ollama_client.is_closed
 
 
 def test_generation_returns_an_unapproved_draft(app, mock_ollama):
