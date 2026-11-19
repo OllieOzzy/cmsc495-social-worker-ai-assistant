@@ -49,6 +49,155 @@ def backend_for_ui(monkeypatch, tmp_path):
         yield backend
 
 
+def test_back_to_notes_saves_pending_edits_to_the_same_report(backend_for_ui):
+    """Carry DAP and metadata edits through the notes screen before saving them."""
+    backend = backend_for_ui
+    initial = (
+        backend.post(
+            "/reports/manual",
+            json={
+                "notes": "Original synthetic notes.",
+                "metadata": {"student_name": "Alex Example"},
+            },
+        )
+        .raise_for_status()
+        .json()
+    )
+    path = f"/reports/{initial['report_id']}"
+    edited_sections = {
+        "data": "The student practiced requesting help twice.",
+        "assessment": "The second request was independent.",
+        "plan": "Check in Friday after lunch.",
+    }
+    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    assert not app.exception, app.exception
+    next(
+        button for button in app.sidebar.button if button.label == "Open report"
+    ).click().run()
+    assert not app.exception, app.exception
+
+    for field, label in reports.DAP_FIELDS.items():
+        next(widget for widget in app.text_area if widget.label == label).set_value(
+            edited_sections[field]
+        )
+    next(widget for widget in app.text_input if widget.label == "School").set_value(
+        "Example Middle School"
+    )
+    next(
+        button for button in app.button if button.label == "Back to notes"
+    ).click().run()
+
+    assert not app.exception, app.exception
+    assert "report" not in app.session_state
+    pending = app.session_state["note_entry"]
+    assert pending["report_id"] == initial["report_id"]
+    assert pending["revision"] == initial["revision"]
+    assert pending["sections"] == edited_sections
+    assert (
+        next(widget for widget in app.text_input if widget.label == "School").value
+        == "Example Middle School"
+    )
+    assert (
+        next(
+            widget for widget in app.text_area if "Session Notes" in widget.label
+        ).value
+        == initial["notes"]
+    )
+    assert backend.get(path).raise_for_status().json() == initial
+
+    edited_notes = "Revised synthetic notes after reviewing the draft."
+    next(
+        widget for widget in app.text_area if "Session Notes" in widget.label
+    ).set_value(edited_notes)
+    next(button for button in app.button if button.label == "Save notes").click().run()
+
+    assert not app.exception, app.exception
+    assert not app.error
+    assert "note_entry" not in app.session_state
+    assert app.session_state["report"]["report_id"] == initial["report_id"]
+    stored = backend.get(path).raise_for_status().json()
+    assert stored["revision"] == initial["revision"] + 1
+    assert stored["notes"] == edited_notes
+    assert stored["sections"] == edited_sections
+    assert stored["metadata"]["school"] == "Example Middle School"
+    assert stored["metadata"]["draft_source"] == "handwritten"
+    for field, label in reports.DAP_FIELDS.items():
+        assert (
+            next(widget for widget in app.text_area if widget.label == label).value
+            == edited_sections[field]
+        )
+    history = backend.get("/reports").raise_for_status().json()
+    assert [item["report_id"] for item in history] == [initial["report_id"]]
+
+
+def test_discard_changes_restores_saved_fields_without_writing(
+    backend_for_ui, monkeypatch
+):
+    """Reset edited DAP and session details to the saved values without a save request."""
+    backend = backend_for_ui
+    initial = (
+        backend.post(
+            "/reports/manual",
+            json={
+                "notes": "Synthetic source notes.",
+                "metadata": {"student_name": "Alex Example"},
+            },
+        )
+        .raise_for_status()
+        .json()
+    )
+    path = f"/reports/{initial['report_id']}"
+    sections = {
+        "data": "Saved observation.",
+        "assessment": "Saved assessment.",
+        "plan": "Saved follow-up plan.",
+    }
+    saved = (
+        backend.patch(
+            path, json={"revision": initial["revision"], "sections": sections}
+        )
+        .raise_for_status()
+        .json()
+    )
+    request = Mock(wraps=api_client.httpx.request)
+    monkeypatch.setattr(api_client.httpx, "request", request)
+    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    assert not app.exception, app.exception
+    next(
+        button for button in app.sidebar.button if button.label == "Open report"
+    ).click().run()
+    assert not app.exception, app.exception
+
+    for label in reports.DAP_FIELDS.values():
+        next(widget for widget in app.text_area if widget.label == label).set_value(
+            "Unsaved replacement."
+        )
+    next(
+        widget for widget in app.text_input if widget.label == "Student name"
+    ).set_value("Unsaved name")
+    next(
+        button for button in app.button if button.label == "Discard changes"
+    ).click().run()
+
+    assert not app.exception, app.exception
+    assert not app.error
+    assert any(message.value == "Unsaved changes discarded." for message in app.success)
+    assert app.session_state["report"] == saved
+    for field, label in reports.DAP_FIELDS.items():
+        assert (
+            next(widget for widget in app.text_area if widget.label == label).value
+            == sections[field]
+        )
+    assert (
+        next(
+            widget for widget in app.text_input if widget.label == "Student name"
+        ).value
+        == "Alex Example"
+    )
+    assert backend.get(path).raise_for_status().json() == saved
+    assert all(call.args[0] == "GET" for call in request.call_args_list)
+
+
 def test_saved_dap_edits_survive_opening_another_report(backend_for_ui):
     """Save all three DAP sections, switch reports, and reopen the stored version."""
     edited_sections = {
