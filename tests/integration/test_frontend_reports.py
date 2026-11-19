@@ -44,8 +44,8 @@ def backend_for_ui(monkeypatch, tmp_path):
                 200, json={"models": []}, request=httpx.Request("GET", url)
             )
 
-        monkeypatch.setattr(api_client.httpx, "request", send_to_backend)
-        monkeypatch.setattr(api_client.httpx, "get", ollama_status)
+        client = Mock(request=send_to_backend, get=ollama_status)
+        monkeypatch.setattr(api_client, "_get_http_client", Mock(return_value=client))
         yield backend
 
 
@@ -211,8 +211,9 @@ def test_discard_changes_restores_saved_fields_without_writing(
         .raise_for_status()
         .json()
     )
-    request = Mock(wraps=api_client.httpx.request)
-    monkeypatch.setattr(api_client.httpx, "request", request)
+    client = api_client._get_http_client()
+    request = Mock(wraps=client.request)
+    monkeypatch.setattr(client, "request", request)
     app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
     assert not app.exception, app.exception
     next(
@@ -609,8 +610,9 @@ def test_blank_notes_block_ai_generation_but_allow_handwritten_draft(
 ):
     """Validate AI input while preserving the blank handwritten report workflow."""
     backend = backend_for_ui
-    request = Mock(wraps=api_client.httpx.request)
-    monkeypatch.setattr(api_client.httpx, "request", request)
+    client = api_client._get_http_client()
+    request = Mock(wraps=client.request)
+    monkeypatch.setattr(client, "request", request)
     app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
     assert not app.exception, app.exception
     next(

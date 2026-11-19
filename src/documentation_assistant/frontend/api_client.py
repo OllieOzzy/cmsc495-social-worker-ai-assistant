@@ -8,12 +8,20 @@ import streamlit as st
 API_URL = os.getenv("DAP_API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
+@st.cache_resource(
+    scope="session", show_spinner=False, on_release=lambda client: client.close()
+)
+def _get_http_client(trust_env: bool = True) -> httpx.Client:
+    """Reuse a connection pool per session and proxy policy; close it on release."""
+    return httpx.Client(trust_env=trust_env)
+
+
 def ollama_is_reachable():
     """Return whether local Ollama responds with a model list, even if empty."""
     try:
         # Bypass proxy settings for the loopback request.
-        response = httpx.get(
-            "http://127.0.0.1:11434/api/tags", timeout=3, trust_env=False
+        response = _get_http_client(trust_env=False).get(
+            "http://127.0.0.1:11434/api/tags", timeout=3
         )
         response.raise_for_status()
         payload = response.json()
@@ -30,7 +38,7 @@ def request_api(method, path, *, payload=None, params=None, timeout=10, raw=Fals
     connection errors, or invalid JSON responses.
     """
     try:
-        response = httpx.request(
+        response = _get_http_client().request(
             method, f"{API_URL}{path}", json=payload, params=params, timeout=timeout
         )
         response.raise_for_status()
