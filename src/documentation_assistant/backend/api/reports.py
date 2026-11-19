@@ -121,7 +121,7 @@ async def generate_report(
         update={"draft_source": "ai_assisted"}
     )
     _validate_session_times(metadata)
-    sections = await _generate_sections(payload.notes)
+    sections = await _generate_sections(payload.notes, request.app.state.ollama_client)
     # Keep the synchronous SQLite write from blocking other async requests.
     draft = await run_in_threadpool(
         save_draft,
@@ -143,10 +143,10 @@ def _validate_session_times(
         raise HTTPException(422, str(exc)) from exc
 
 
-async def _generate_sections(notes: str) -> DAPSections:
+async def _generate_sections(notes: str, client: httpx.AsyncClient) -> DAPSections:
     """Generate validated DAP sections and translate Ollama failures to API errors."""
     try:
-        return await generate_dap(notes)
+        return await generate_dap(notes, client)
     except httpx.TimeoutException as exc:
         raise HTTPException(
             504, "Ollama timed out. Try again with shorter notes."
@@ -273,7 +273,7 @@ async def regenerate_report(
         and {"start_time", "end_time"} & payload.metadata.model_fields_set
     ):
         _validate_session_times(payload.metadata, current.metadata)
-    sections = await _generate_sections(payload.notes)
+    sections = await _generate_sections(payload.notes, request.app.state.ollama_client)
     edit = EditReportRequest(
         revision=payload.revision,
         notes=payload.notes,

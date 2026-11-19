@@ -4,8 +4,10 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI
 
+from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 from documentation_assistant.backend.api.health import router as health_router
 from documentation_assistant.backend.api.reports import router as reports_router
 from documentation_assistant.backend.db.connection import initialize_database
@@ -13,9 +15,15 @@ from documentation_assistant.backend.db.connection import initialize_database
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    """Initialize SQLite once at startup, including missing-column upgrades."""
+    """Initialize SQLite and manage the pooled Ollama HTTP client."""
     initialize_database(application.state.database_path)
-    yield
+    # Creating the client does not require Ollama to be running. Connections
+    # open on demand and are closed together when the backend shuts down.
+    async with httpx.AsyncClient(
+        timeout=OLLAMA_REQUEST_TIMEOUT_SECONDS, trust_env=False
+    ) as client:
+        application.state.ollama_client = client
+        yield
 
 
 def create_app() -> FastAPI:
