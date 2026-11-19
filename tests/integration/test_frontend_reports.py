@@ -1,6 +1,7 @@
 """Exercise report editing through Streamlit, FastAPI, and a temporary database."""
 
 from pathlib import Path
+from unittest.mock import Mock
 
 import httpx
 import pytest
@@ -399,3 +400,47 @@ def test_confirmed_draft_deletion_clears_review_and_refreshes_history(backend_fo
     assert {
         item["report_id"] for item in backend.get("/reports").raise_for_status().json()
     } == {retained["report_id"]}
+
+
+@pytest.mark.parametrize("notes", ["", " \n\t"])
+def test_blank_notes_block_ai_generation_but_allow_handwritten_draft(
+    backend_for_ui, monkeypatch, notes
+):
+    """Validate AI input while preserving the blank handwritten report workflow."""
+    backend = backend_for_ui
+    request = Mock(wraps=api_client.httpx.request)
+    monkeypatch.setattr(api_client.httpx, "request", request)
+    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    assert not app.exception, app.exception
+    next(
+        widget for widget in app.text_area if "Session Notes" in widget.label
+    ).set_value(notes)
+    next(
+        button for button in app.button if button.label == "AI-assisted draft"
+    ).click().run()
+
+    assert not app.exception, app.exception
+    assert any(
+        error.value == "Enter session notes to create an AI-assisted draft."
+        for error in app.error
+    )
+    assert all(call.args[0] != "POST" for call in request.call_args_list)
+    assert "report" not in app.session_state
+    assert "pending_report_id" not in app.session_state
+    assert backend.get("/reports").raise_for_status().json() == []
+
+    next(
+        button for button in app.button if button.label == "Written by hand"
+    ).click().run()
+
+    assert not app.exception, app.exception
+    assert not app.error
+    report = app.session_state["report"]
+    stored = backend.get(f"/reports/{report['report_id']}").raise_for_status().json()
+    assert stored["status"] == "draft"
+    assert not stored["notes"].strip()
+    assert stored["metadata"]["draft_source"] == "handwritten"
+    assert all(not section.strip() for section in stored["sections"].values())
+    writes = [call for call in request.call_args_list if call.args[0] == "POST"]
+    assert len(writes) == 1
+    assert httpx.URL(writes[0].args[1]).path == "/reports/manual"
