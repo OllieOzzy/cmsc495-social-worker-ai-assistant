@@ -44,9 +44,61 @@ def backend_for_ui(monkeypatch, tmp_path):
                 200, json={"models": []}, request=httpx.Request("GET", url)
             )
 
-        monkeypatch.setattr(api_client.httpx, "request", send_to_backend)
-        monkeypatch.setattr(api_client.httpx, "get", ollama_status)
+        client = Mock(request=send_to_backend, get=ollama_status)
+        monkeypatch.setattr(api_client, "_get_http_client", Mock(return_value=client))
         yield backend
+
+
+def test_history_navigation_and_filters_use_real_backend_pages(backend_for_ui):
+    """Navigate a multi-page history, then apply and clear a filter from page two."""
+    for index in range(27):
+        response = backend_for_ui.post(
+            "/reports/manual",
+            json={"metadata": {"student_name": f"Student {index:02}"}},
+        )
+        assert response.status_code == 201
+
+    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+
+    def button(label):
+        return next(widget for widget in app.sidebar.button if widget.label == label)
+
+    def history():
+        return next(
+            widget for widget in app.sidebar.selectbox if widget.label == "Report"
+        )
+
+    assert not app.exception, app.exception
+    assert len(history().options) == 25
+    assert "Student 26" in history().options[0]
+    assert button("Previous").disabled
+    assert not button("Next").disabled
+
+    button("Next").click().run()
+    assert not app.exception, app.exception
+    assert len(history().options) == 2
+    assert "Student 01" in history().options[0]
+    assert button("Next").disabled
+    assert not button("Previous").disabled
+
+    next(
+        widget for widget in app.sidebar.text_input if widget.label == "Student name"
+    ).set_value("Student 26")
+    button("Apply filters").click().run()
+    assert not app.exception, app.exception
+    assert len(history().options) == 1
+    assert "Student 26" in history().options[0]
+    assert button("Previous").disabled
+    assert button("Next").disabled
+
+    button("Clear filters").click().run()
+    assert not app.exception, app.exception
+    assert len(history().options) == 25
+    button("Next").click().run()
+    button("Previous").click().run()
+    assert not app.exception, app.exception
+    assert len(history().options) == 25
+    assert "Student 26" in history().options[0]
 
 
 def test_back_to_notes_saves_pending_edits_to_the_same_report(backend_for_ui):
@@ -159,8 +211,9 @@ def test_discard_changes_restores_saved_fields_without_writing(
         .raise_for_status()
         .json()
     )
-    request = Mock(wraps=api_client.httpx.request)
-    monkeypatch.setattr(api_client.httpx, "request", request)
+    client = api_client._get_http_client()
+    request = Mock(wraps=client.request)
+    monkeypatch.setattr(client, "request", request)
     app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
     assert not app.exception, app.exception
     next(
@@ -557,8 +610,9 @@ def test_blank_notes_block_ai_generation_but_allow_handwritten_draft(
 ):
     """Validate AI input while preserving the blank handwritten report workflow."""
     backend = backend_for_ui
-    request = Mock(wraps=api_client.httpx.request)
-    monkeypatch.setattr(api_client.httpx, "request", request)
+    client = api_client._get_http_client()
+    request = Mock(wraps=client.request)
+    monkeypatch.setattr(client, "request", request)
     app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
     assert not app.exception, app.exception
     next(

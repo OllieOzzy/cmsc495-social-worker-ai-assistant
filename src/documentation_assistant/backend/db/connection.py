@@ -34,10 +34,16 @@ _ADDED_COLUMNS = {
 
 @contextmanager
 def connect(path: Path) -> Iterator[sqlite3.Connection]:
-    """Open SQLite, create the reports table if needed, and manage the transaction."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Open an initialized SQLite database and manage its transaction."""
     # Commit or roll back the transaction before closing the connection.
     with closing(sqlite3.connect(path)) as connection, connection:
+        yield connection
+
+
+def initialize_database(path: Path) -> None:
+    """Create or upgrade the reports table before the backend serves requests."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with connect(path) as connection:
         connection.execute("""
             CREATE TABLE IF NOT EXISTS report_drafts (
                 report_id TEXT PRIMARY KEY NOT NULL,
@@ -71,7 +77,6 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
             )
         """)
         _ensure_added_columns(connection)
-        yield connection
 
 
 def _ensure_added_columns(connection: sqlite3.Connection) -> None:

@@ -13,7 +13,9 @@ def api_mocks(monkeypatch):
     """Replace HTTP requests and Streamlit error messages for each test."""
     request = Mock()
     error = Mock()
-    monkeypatch.setattr(api_client.httpx, "request", request)
+    monkeypatch.setattr(
+        api_client, "_get_http_client", Mock(return_value=Mock(request=request))
+    )
     monkeypatch.setattr(api_client.st, "error", error)
     return request, error
 
@@ -191,7 +193,9 @@ def test_raw_download_failure_shows_error(api_mocks):
 def ollama_get(monkeypatch):
     """Replace the local Ollama status request without starting a server."""
     get = Mock()
-    monkeypatch.setattr(api_client.httpx, "get", get)
+    monkeypatch.setattr(
+        api_client, "_get_http_client", Mock(return_value=Mock(get=get))
+    )
     return get
 
 
@@ -205,10 +209,9 @@ def test_ollama_status_accepts_empty_and_populated_model_lists(ollama_get, model
     )
 
     assert api_client.ollama_is_reachable() is True
+    api_client._get_http_client.assert_called_once_with(trust_env=False)
 
-    ollama_get.assert_called_once_with(
-        "http://127.0.0.1:11434/api/tags", timeout=3, trust_env=False
-    )
+    ollama_get.assert_called_once_with("http://127.0.0.1:11434/api/tags", timeout=3)
 
 
 @pytest.mark.parametrize(

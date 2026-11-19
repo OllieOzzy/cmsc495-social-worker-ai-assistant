@@ -41,8 +41,73 @@ def ollama_status(monkeypatch):
             request=httpx.Request("GET", "http://127.0.0.1:11434/api/tags"),
         )
     )
-    monkeypatch.setattr(api_client.httpx, "get", get)
-    return get
+    client = Mock(get=get)
+    monkeypatch.setattr(api_client, "_get_http_client", Mock(return_value=client))
+    return client
+
+
+def test_http_clients_are_reused_per_session_and_closed_on_release(monkeypatch):
+    """Real cached clients survive reruns without sharing state between sessions."""
+    original_client = httpx.Client
+    clients = []
+
+    def respond(request):
+        payload = (
+            {"models": []} if request.url.path == "/api/tags" else {"status": "ok"}
+        )
+        return httpx.Response(200, json=payload)
+
+    def make_client(**kwargs):
+        client = original_client(transport=httpx.MockTransport(respond), **kwargs)
+        clients.append((client, kwargs))
+        return client
+
+    monkeypatch.setattr(httpx, "Client", make_client)
+    script = """
+import streamlit as st
+from streamlit.runtime.scriptrunner import get_script_run_ctx
+from documentation_assistant.frontend.api_client import (
+    _get_http_client, request_api, ollama_is_reachable,
+)
+# AppTest otherwise gives every app the same hardcoded session ID.
+get_script_run_ctx().session_id = st.session_state["test_http_session_id"]
+assert request_api("GET", "/health") == {"status": "ok"}
+assert ollama_is_reachable()
+if st.button("Release clients"):
+    _get_http_client.clear()
+"""
+    first = AppTest.from_string(script)
+    first.session_state["test_http_session_id"] = "http-first"
+    first.run()
+    assert not first.exception, first.exception
+    first.run()
+    assert not first.exception, first.exception
+    assert len(clients) == 2
+    assert [kwargs for _, kwargs in clients] == [
+        {"trust_env": True},
+        {"trust_env": False},
+    ]
+
+    second = AppTest.from_string(script)
+    second.session_state["test_http_session_id"] = "http-second"
+    second.run()
+    assert not second.exception, second.exception
+    assert len(clients) == 4
+    assert all(not client.is_closed for client, _ in clients)
+
+    first.button[0].click().run()
+    assert not first.exception, first.exception
+    assert all(client.is_closed for client, _ in clients[:2])
+    assert all(not client.is_closed for client, _ in clients[2:])
+
+    first.run()
+    assert not first.exception, first.exception
+    assert len(clients) == 6
+    assert all(not client.is_closed for client, _ in clients[4:])
+    # Explicit release also keeps the test's mocked clients from outliving its patch.
+    first.button[0].click().run()
+    second.button[0].click().run()
+    assert all(client.is_closed for client, _ in clients)
 
 
 def test_retry_opens_saved_draft_without_generating_duplicate(
@@ -74,7 +139,7 @@ def test_retry_opens_saved_draft_without_generating_duplicate(
         raise AssertionError(f"Unexpected HTTP request: {method} {url}")
 
     request_api = Mock(side_effect=respond)
-    monkeypatch.setattr(api_client.httpx, "request", request_api)
+    ollama_status.request = request_api
     app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
     assert not app.exception, app.exception
 
@@ -120,7 +185,7 @@ def test_backend_reconnection_loads_history_after_status_check(
         raise AssertionError(f"Unexpected HTTP request: {method} {url}")
 
     request_api = Mock(side_effect=respond)
-    monkeypatch.setattr(api_client.httpx, "request", request_api)
+    ollama_status.request = request_api
     app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
 
     assert not app.exception, app.exception

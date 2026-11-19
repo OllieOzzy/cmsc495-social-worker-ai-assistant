@@ -7,12 +7,14 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime
 from threading import Event
+from unittest.mock import Mock
 from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 from documentation_assistant.backend.main import create_app
 from documentation_assistant.backend.schemas.reports import SavedReportMetadata
 
@@ -24,6 +26,38 @@ def app(monkeypatch, tmp_path):
     """Create a FastAPI app with a database isolated to the current test."""
     monkeypatch.setenv("DAP_DB_PATH", str(tmp_path / "test.db"))
     return create_app()
+
+
+def test_database_schema_is_initialized_at_startup_only(app, monkeypatch):
+    """Repeated report requests must not repeat table creation or schema inspection."""
+    statements = []
+    sqlite_connect = sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        connection = sqlite_connect(*args, **kwargs)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", traced_connect)
+    assert not app.state.database_path.exists()
+
+    with TestClient(app) as client:
+        assert app.state.database_path.exists()
+        assert any("CREATE TABLE" in sql for sql in statements)
+        assert any("pragma_table_info" in sql for sql in statements)
+        statements.clear()
+
+        for _ in range(2):
+            assert client.get("/reports").json() == []
+        response = client.post("/reports/manual", json={"notes": NOTES})
+        assert response.status_code == 201
+        assert client.get(f"/reports/{response.json()['report_id']}").status_code == 200
+
+    assert statements
+    assert not any(
+        "CREATE TABLE" in sql or "pragma_table_info" in sql or "ALTER TABLE" in sql
+        for sql in statements
+    )
 
 
 @pytest.fixture
@@ -42,6 +76,115 @@ def mock_ollama(monkeypatch):
         monkeypatch.setattr(httpx, "AsyncClient", make_client)
 
     return configure
+
+
+def test_history_pages_are_bounded_and_filters_apply_before_pagination(app):
+    """Traverse filtered pages without duplicates or missing matching reports."""
+    with TestClient(app) as client:
+        all_ids = []
+        matching_ids = []
+        for index in range(55):
+            response = client.post(
+                "/reports/manual",
+                json={"metadata": {"school": "Match" if index % 2 == 0 else "Other"}},
+            )
+            assert response.status_code == 201
+            report_id = response.json()["report_id"]
+            all_ids.append(report_id)
+            if index % 2 == 0:
+                matching_ids.append(report_id)
+
+        default_page = client.get("/reports").json()
+        assert [row["report_id"] for row in default_page] == all_ids[::-1][:25]
+        pages = [
+            client.get(
+                "/reports", params={"school": "Match", "limit": 11, "offset": offset}
+            )
+            .raise_for_status()
+            .json()
+            for offset in (0, 11, 22, 33)
+        ]
+        assert [len(page) for page in pages] == [11, 11, 6, 0]
+        assert [row["report_id"] for page in pages for row in page] == matching_ids[
+            ::-1
+        ]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 101},
+        {"offset": -1},
+        {"offset": 2**63},
+    ],
+)
+def test_history_rejects_invalid_pagination(app, params):
+    """Reject invalid bounds before SQLite executes a history query."""
+    with TestClient(app) as client:
+        assert client.get("/reports", params=params).status_code == 422
+
+
+def test_ollama_client_is_reused_after_failure_and_closed_on_shutdown(
+    app, mock_ollama, monkeypatch
+):
+    """One startup client serves generation and regeneration, including retries."""
+    calls = 0
+
+    def reply(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ConnectError("Ollama is offline.", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "data": NOTES,
+                            "assessment": "Not documented.",
+                            "plan": "Not documented.",
+                        }
+                    )
+                },
+            },
+        )
+
+    mock_ollama(reply)
+    factory = Mock(wraps=httpx.AsyncClient)
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+
+    with TestClient(app) as client:
+        pooled_client = app.state.ollama_client
+        assert not pooled_client.is_closed
+        # Client creation itself makes no request, so manual use remains offline-capable.
+        assert calls == 0
+        assert (
+            client.post("/reports/generate", json={"notes": NOTES}).status_code == 503
+        )
+        generated = client.post("/reports/generate", json={"notes": NOTES})
+        assert generated.status_code == 200
+        report_id = generated.json()["report_id"]
+        regenerated = client.post(
+            f"/reports/{report_id}/regenerate", json={"revision": 1, "notes": NOTES}
+        )
+        assert regenerated.status_code == 200
+        assert app.state.ollama_client is pooled_client
+        assert not pooled_client.is_closed
+        factory.assert_called_once_with(
+            timeout=OLLAMA_REQUEST_TIMEOUT_SECONDS, trust_env=False
+        )
+
+    assert calls == 3
+    assert pooled_client.is_closed
+
+    # A later startup gets a new client rather than retaining a closed connection pool.
+    with TestClient(app):
+        assert app.state.ollama_client is not pooled_client
+        assert not app.state.ollama_client.is_closed
+    assert app.state.ollama_client.is_closed
 
 
 def test_generation_returns_an_unapproved_draft(app, mock_ollama):
@@ -953,7 +1096,8 @@ def test_invalid_ollama_reply_is_not_saved(app, mock_ollama):
         response = client.post("/reports/generate", json={"notes": NOTES})
     assert response.status_code == 502
     assert "Ollama" in response.json()["detail"]
-    assert not app.state.database_path.exists()
+    with TestClient(app) as client:
+        assert client.get("/reports").json() == []
 
 
 @pytest.mark.parametrize("operation", ["edit", "delete"])

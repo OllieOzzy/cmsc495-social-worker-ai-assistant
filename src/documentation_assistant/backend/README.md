@@ -211,6 +211,12 @@ Start Ollama and run `ollama pull qwen3:8b` if the model is missing. The backend
 uses Ollama on `127.0.0.1:11434`. To use a different installed model, set
 `OLLAMA_MODEL` before starting the backend. [Local Ollama setup guide](../../../docs/local-llm-setup.md)
 
+The backend creates one async HTTP client at startup for generation and
+regeneration. It reuses available connections and closes the client at shutdown.
+Creating the client does not contact Ollama, so manual workflows still work
+with Ollama stopped. The client keeps the 240-second request timeout and
+bypasses environment proxy settings for local Ollama requests.
+
 - PowerShell: `$env:OLLAMA_MODEL = "your-model-tag"`
 - bash or zsh: `export OLLAMA_MODEL="your-model-tag"`
 
@@ -235,13 +241,18 @@ a section. Review the draft against the original notes for accuracy and
 completeness before approving it. Restart FastAPI after editing the prompt so
 it loads the new instructions. [DAP prompt guide](llm/prompts/README.md)
 
-SQLite creates `data/dap.db` on first use of draft storage when the
-backend starts from the repository root. To use another location, set
-`DAP_DB_PATH` before starting the backend.
+SQLite creates `data/dap.db` during backend startup when launched from the
+repository root. Startup also adds missing columns to older databases;
+ordinary report requests do not repeat schema checks. To use another location,
+set `DAP_DB_PATH` before starting the backend.
 
 Use `GET /reports` to find a saved draft without already knowing its ID. Each
 summary contains `report_id`, `status`, and a UTC `created_at` timestamp.
 Drafts saved before timestamps were introduced have `created_at: null`.
+The endpoint returns up to 25 reports by default, newest first. Use `limit`
+(1–100) and `offset` (zero or greater) to request another page, such as
+`GET /reports?limit=25&offset=25` for page two. Filters apply before pagination;
+the response remains a JSON array and returns `[]` beyond the matching results.
 When generating a draft, you can include a `metadata` object with
 `student_name`, `student_id`, `school`, `grade`, `date_of_service`, and
 `social_worker_name`.

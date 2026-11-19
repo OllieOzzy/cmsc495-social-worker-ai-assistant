@@ -202,6 +202,12 @@ Open the **Local URL** printed by Streamlit, usually `http://localhost:8501`.
 The frontend uses `http://127.0.0.1:8000` for FastAPI by default. If FastAPI runs
 at a different address, set `DAP_API_URL` before launching Streamlit.
 
+HTTP clients are reused across reruns within each browser session. Backend
+requests and Ollama status checks use separate connection pools to preserve
+their proxy settings. Streamlit closes the clients when it releases the
+session's cached resources. Report responses and PDF contents are not cached
+by these clients.
+
 Start Ollama when you want to generate or regenerate an AI-assisted draft.
 You can create and review manual drafts with FastAPI running and Ollama
 stopped. [Local Ollama setup guide](../../../docs/local-llm-setup.md)
@@ -227,6 +233,8 @@ FastAPI, press **Ctrl+C** in its terminal. Saved reports remain in SQLite.
 
 Use **Filter report** and **Open report** under **History Reports** to find a
 saved report. To edit an approved report, select **Reopen as draft**.
+History shows 25 reports per page, newest first. Use **Previous** and **Next**
+to browse matching reports. Applying or clearing filters returns to page one.
 
 ### Service Status
 

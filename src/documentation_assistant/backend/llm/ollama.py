@@ -5,7 +5,6 @@ from pathlib import Path
 
 import httpx
 
-from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 from documentation_assistant.backend.schemas.reports import DAPSections
 
 # Load the prompt once when the backend imports this module.
@@ -18,32 +17,29 @@ class InvalidModelResponse(Exception):
     """Ollama returned an incomplete or invalid draft."""
 
 
-async def generate_dap(notes: str) -> DAPSections:
+async def generate_dap(notes: str, client: httpx.AsyncClient) -> DAPSections:
     """Generate three nonblank DAP sections from synthetic session notes.
 
     Raise InvalidModelResponse if Ollama's reply is incomplete or malformed.
     The reviewer checks the draft's accuracy against the source notes.
+    The application owns the client and reuses its connections across requests.
     """
-    # Connect directly to Ollama on loopback, bypassing proxy settings.
-    async with httpx.AsyncClient(
-        timeout=OLLAMA_REQUEST_TIMEOUT_SECONDS, trust_env=False
-    ) as client:
-        response = await client.post(
-            "http://127.0.0.1:11434/api/chat",
-            json={
-                "model": os.getenv("OLLAMA_MODEL", "qwen3:8b"),
-                "stream": False,
-                "think": False,
-                # Ask Ollama for the same three-field structure the backend validates.
-                "format": DAPSections.model_json_schema(),
-                "messages": [
-                    {"role": "system", "content": _PROMPT},
-                    {"role": "user", "content": notes},
-                ],
-                "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 1200},
-            },
-        )
-        response.raise_for_status()
+    response = await client.post(
+        "http://127.0.0.1:11434/api/chat",
+        json={
+            "model": os.getenv("OLLAMA_MODEL", "qwen3:8b"),
+            "stream": False,
+            "think": False,
+            # Ask Ollama for the same three-field structure the backend validates.
+            "format": DAPSections.model_json_schema(),
+            "messages": [
+                {"role": "system", "content": _PROMPT},
+                {"role": "user", "content": notes},
+            ],
+            "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 1200},
+        },
+    )
+    response.raise_for_status()
 
     try:
         result = response.json()

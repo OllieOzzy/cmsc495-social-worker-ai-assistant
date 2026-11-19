@@ -26,7 +26,11 @@ NOTES = "Synthetic student practiced a breathing exercise."
 def api_request(tmp_path):
     """Supply the application state that the handlers read from a request."""
     return SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(database_path=tmp_path / "test.db"))
+        app=SimpleNamespace(
+            state=SimpleNamespace(
+                database_path=tmp_path / "test.db", ollama_client=Mock()
+            )
+        )
     )
 
 
@@ -50,7 +54,7 @@ def test_generate_report_saves_valid_sections(monkeypatch, api_request):
         "sections": sections.model_dump(),
         "status": "draft",
     }
-    generate.assert_awaited_once_with(NOTES)
+    generate.assert_awaited_once_with(NOTES, api_request.app.state.ollama_client)
     store.assert_awaited_once_with(
         reports.save_draft,
         api_request.app.state.database_path,
@@ -171,7 +175,7 @@ def test_regeneration_maps_final_storage_failures(
         asyncio.run(reports.regenerate_report(current.report_id, payload, api_request))
 
     assert (error.value.status_code, error.value.detail) == (status, message)
-    generate.assert_awaited_once_with(NOTES)
+    generate.assert_awaited_once_with(NOTES, api_request.app.state.ollama_client)
     assert storage.await_count == 2
     lookup, save = storage.await_args_list
     assert lookup.args == (
