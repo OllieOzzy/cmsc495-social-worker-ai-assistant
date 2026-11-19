@@ -22,11 +22,18 @@ def backend_for_ui(monkeypatch, tmp_path):
 
         def send_to_backend(method, url, **kwargs):
             """Route frontend requests through the actual API handlers."""
-            return backend.request(
+            response = backend.request(
                 method,
                 httpx.URL(url).path,
                 json=kwargs["json"],
                 params=kwargs["params"],
+            )
+            # Use the frontend's HTTP client type for status errors and decoding.
+            return httpx.Response(
+                response.status_code,
+                headers=response.headers,
+                content=response.content,
+                request=httpx.Request(method, url),
             )
 
         def ollama_status(url, **kwargs):
@@ -248,3 +255,73 @@ def test_approval_and_reopening_preserve_saved_content(backend_for_ui):
     assert not next(
         button for button in app.button if button.label == "Save draft"
     ).disabled
+
+
+def test_stale_save_preserves_local_edits_and_current_database_version(backend_for_ui):
+    """Reject an outdated save while retaining the first user's pending edits."""
+    backend = backend_for_ui
+    initial = (
+        backend.post("/reports/manual", json={"notes": "Synthetic session notes."})
+        .raise_for_status()
+        .json()
+    )
+    path = f"/reports/{initial['report_id']}"
+    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    assert not app.exception, app.exception
+    next(
+        button for button in app.sidebar.button if button.label == "Open report"
+    ).click().run()
+    assert not app.exception, app.exception
+    assert app.session_state["report"]["revision"] == initial["revision"]
+
+    pending_sections = {
+        "data": "The first user observed a practice request for help.",
+        "assessment": "The first user recorded an independent attempt.",
+        "plan": "The first user plans to check in Friday.",
+    }
+    for field, label in reports.DAP_FIELDS.items():
+        next(widget for widget in app.text_area if widget.label == label).set_value(
+            pending_sections[field]
+        )
+    next(
+        widget for widget in app.text_input if widget.label == "Student name"
+    ).set_value("Alex Example")
+
+    # Another client saves the same report before the first user submits the form.
+    latest = (
+        backend.patch(
+            path,
+            json={
+                "revision": initial["revision"],
+                "sections": {
+                    **initial["sections"],
+                    "data": "The second user saved a different observation.",
+                },
+            },
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert latest["revision"] == initial["revision"] + 1
+
+    next(button for button in app.button if button.label == "Save draft").click().run()
+
+    assert not app.exception, app.exception
+    assert any(
+        error.value == "Report changed. Reload the current revision."
+        for error in app.error
+    )
+    assert not any(message.value == "Draft saved." for message in app.success)
+    assert app.session_state["report"]["revision"] == initial["revision"]
+    assert (
+        next(
+            widget for widget in app.text_input if widget.label == "Student name"
+        ).value
+        == "Alex Example"
+    )
+    for field, label in reports.DAP_FIELDS.items():
+        assert (
+            next(widget for widget in app.text_area if widget.label == label).value
+            == pending_sections[field]
+        )
+    assert backend.get(path).raise_for_status().json() == latest
