@@ -18,7 +18,7 @@ _HISTORY_PAGE_SIZE = 25
 
 
 def clear_report_filters():
-    """Clear the search inputs and the filters used for API requests."""
+    """Clear search inputs and active filters, then return history to page one."""
     for field in (*FILTER_FIELDS, "status", "date_from", "date_to"):
         st.session_state.pop(f"filter_{field}", None)
     st.session_state.pop("active_report_filters", None)
@@ -93,6 +93,8 @@ def show_service_status() -> bool:
             "AI Status", key="check_ollama", icon=":material/smart_toy:"
         )
 
+    # Each entry holds (reachable, check_finished_at). A monotonic clock keeps
+    # the expiry interval independent of changes to the computer's wall clock.
     backend_status = st.session_state.get("backend_status_cache")
     if check_backend or backend_status is None or monotonic() - backend_status[1] >= 60:
         # request_api displays connection errors below the status buttons.
@@ -131,7 +133,11 @@ def show_service_status() -> bool:
 
 
 def show_sidebar():
-    """Render service status, report filters, and saved-report controls."""
+    """Render status, filters, and one page of saved-report navigation.
+
+    Keep the page offset in this browser session. Fetch one extra summary to
+    enable Next, but show only the current page in the report selector.
+    """
     with st.sidebar:
         backend_reachable = show_service_status()
         st.session_state["history_waiting_for_backend"] = not backend_reachable

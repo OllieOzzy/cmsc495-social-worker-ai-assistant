@@ -71,7 +71,11 @@ def save_draft(
 def list_drafts(
     path: Path, filters: ReportFilters | None = None
 ) -> list[ReportSummary]:
-    """List a bounded page of matching summaries in reverse insertion order."""
+    """List a bounded page of matching summaries in reverse insertion order.
+
+    SQLite applies filters before limit and offset, so only summaries on the
+    requested page are loaded and validated. An exhausted page returns [].
+    """
     values = (filters or ReportFilters()).model_dump(mode="json")
     clauses = []
     parameters = []

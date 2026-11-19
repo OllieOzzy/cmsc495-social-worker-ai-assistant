@@ -1,4 +1,8 @@
-"""Test Ollama reply parsing without a running model server."""
+"""Test Ollama reply parsing with a mock application-owned async client.
+
+Real HTTPX responses exercise status handling and JSON decoding without a
+model server. Integration tests cover pooled-client startup and shutdown.
+"""
 
 import asyncio
 import json

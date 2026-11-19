@@ -1,4 +1,8 @@
-"""Test report endpoints with temporary SQLite storage and mocked Ollama HTTP."""
+"""Test report endpoints with temporary SQLite storage and mocked Ollama HTTP.
+
+TestClient contexts run startup and shutdown, including schema initialization
+and HTTP client cleanup. Requests exercise the real routes and storage layer.
+"""
 
 import asyncio
 import json
@@ -34,6 +38,7 @@ def test_database_schema_is_initialized_at_startup_only(app, monkeypatch):
     sqlite_connect = sqlite3.connect
 
     def traced_connect(*args, **kwargs):
+        """Record real SQLite statements to detect schema work during requests."""
         connection = sqlite_connect(*args, **kwargs)
         connection.set_trace_callback(statements.append)
         return connection
@@ -62,7 +67,11 @@ def test_database_schema_is_initialized_at_startup_only(app, monkeypatch):
 
 @pytest.fixture
 def mock_ollama(monkeypatch):
-    """Provide a way to replace the Ollama client's HTTP transport."""
+    """Return a transport configurator to call before entering TestClient.
+
+    Startup constructs the shared client, so configure its transport first.
+    HTTPX still handles request encoding, status errors, and client cleanup.
+    """
     original_client = httpx.AsyncClient
 
     # Keep the real client so requests and responses follow the usual HTTPX path.
@@ -132,6 +141,7 @@ def test_ollama_client_is_reused_after_failure_and_closed_on_shutdown(
     calls = 0
 
     def reply(request):
+        """Fail the first connection, then return valid sections for subsequent calls."""
         nonlocal calls
         calls += 1
         if calls == 1:
@@ -312,6 +322,7 @@ def test_manual_draft_can_be_saved_and_completed_without_ollama(app, mock_ollama
     """Save a manual draft and approve it after all three sections are filled."""
 
     def unexpected_ollama_request(_):
+        """Fail immediately if the handwritten workflow attempts AI generation."""
         pytest.fail("The manual draft must bypass Ollama")
 
     mock_ollama(unexpected_ollama_request)
@@ -527,6 +538,7 @@ def test_review_saves_corrections_and_only_approves_the_current_revision(
     approver = {"approved_by": "Taylor Example"}
 
     def reply(request):
+        """Return fixed sections so revision and approval behavior stays deterministic."""
         return httpx.Response(
             200, json={"done": True, "message": {"content": json.dumps(generated)}}
         )
@@ -753,6 +765,7 @@ def test_corrected_notes_and_regeneration_keep_the_same_draft(app, mock_ollama):
     requests = []
 
     def reply(request):
+        """Capture corrected notes and simulate one failed generation before retry."""
         requests.append(json.loads(request.content)["messages"][1]["content"])
         if len(requests) == 1:
             raise httpx.ConnectError("Ollama is offline.", request=request)
@@ -836,6 +849,7 @@ def test_report_filters_match_saved_metadata(app, mock_ollama):
     sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
 
     def reply(request):
+        """Verify source notes and return fixed sections for metadata filtering."""
         assert json.loads(request.content)["messages"][1]["content"] == NOTES
         return httpx.Response(
             200, json={"done": True, "message": {"content": json.dumps(sections)}}
@@ -935,6 +949,7 @@ def test_session_and_reporting_fields_round_trip(app, mock_ollama):
     sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
 
     def reply(request):
+        """Verify source notes and isolate session-field persistence from AI wording."""
         assert json.loads(request.content)["messages"][1]["content"] == NOTES
         return httpx.Response(
             200, json={"done": True, "message": {"content": json.dumps(sections)}}
@@ -985,6 +1000,7 @@ def test_reversed_session_times_are_rejected_without_saving(app, mock_ollama):
     """Check new and partial edits, including AI requests before inference."""
 
     def unexpected_request(_request):
+        """Ensure invalid session times are rejected before spending time on inference."""
         pytest.fail("Reversed times should be rejected before calling Ollama.")
 
     mock_ollama(unexpected_request)
@@ -1116,6 +1132,7 @@ def test_regeneration_cannot_overwrite_a_concurrent_report_change(
     async def delayed_reply(request):
         """Hold the AI reply until another request has modified the report."""
         generating.set()
+        # Wait off the event loop so the competing API request can finish.
         assert await asyncio.to_thread(finish_generation.wait, timeout=10), (
             "The competing request did not finish."
         )
@@ -1171,6 +1188,7 @@ def test_regeneration_cannot_overwrite_a_concurrent_report_change(
                     )
                     assert deleted.status_code == 204
             finally:
+                # Release the worker even when the competing request fails an assertion.
                 finish_generation.set()
             response = regeneration.result(timeout=10)
 

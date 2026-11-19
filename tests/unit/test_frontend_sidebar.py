@@ -308,6 +308,7 @@ def test_manual_ai_check_shows_service_result(ui, monkeypatch, reachable):
 def test_status_reruns_reuse_session_results(ui, monkeypatch, reachable):
     """Frequent page reruns reuse both results, including an offline backend."""
     now = Mock(return_value=100)
+    # Advance the clock explicitly so expiration tests never sleep in real time.
     monkeypatch.setattr(sidebar, "monotonic", now)
     request = Mock(return_value={"status": "ok"} if reachable else None)
     ollama = Mock(return_value=reachable)

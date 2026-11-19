@@ -15,7 +15,11 @@ from documentation_assistant.backend.db.connection import initialize_database
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    """Initialize SQLite and manage the pooled Ollama HTTP client."""
+    """Prepare SQLite before serving requests and close the Ollama client on exit.
+
+    Each application startup owns one client shared by generation and
+    regeneration. Database initialization also upgrades missing columns.
+    """
     initialize_database(application.state.database_path)
     # Creating the client does not require Ollama to be running. Connections
     # open on demand and are closed together when the backend shuts down.
@@ -38,7 +42,7 @@ def create_app() -> FastAPI:
             "The API supports creating, reviewing, and approving DAP session notes "
             "for school social work."
         ),
-        version="1.0.0",
+        version="1.1.0",
         lifespan=lifespan,
     )
     # Resolve relative database paths against the process working directory.

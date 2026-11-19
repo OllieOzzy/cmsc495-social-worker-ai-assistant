@@ -9,9 +9,9 @@ AI-powered documentation assistant for school social workers, developed as a UMG
 
 ## Quick Start
 
-[Download and Watch the Demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.0.0/demo.mp4)
+[Download and Watch the 1.0.0 Demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.0.0/demo.mp4)
 
-Install Python 3.12, then download `dap_app-1.0.0-py3-none-any.whl` from the
+Install Python 3.12, then download `dap_app-1.1.0-py3-none-any.whl` from the
 **Assets** section of the [GitHub release](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases).
 Save the wheel in a folder you want to use for the app and open a terminal in
 that folder.
@@ -27,7 +27,7 @@ Once `py -3.12 --version` shows Python 3.12, run the commands below. If
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install .\dap_app-1.0.0-py3-none-any.whl
+.\.venv\Scripts\python.exe -m pip install .\dap_app-1.1.0-py3-none-any.whl
 .\.venv\Scripts\dap-assistant.exe
 ```
 
@@ -35,7 +35,7 @@ py -3.12 -m venv .venv
 
 ```sh
 python3.12 -m venv .venv
-./.venv/bin/python -m pip install ./dap_app-1.0.0-py3-none-any.whl
+./.venv/bin/python -m pip install ./dap_app-1.1.0-py3-none-any.whl
 ./.venv/bin/dap-assistant
 ```
 
@@ -184,7 +184,7 @@ flowchart TD
     Build --> Linux["Validate on Ubuntu"]
     Build --> Mac["Validate on macOS"]
 
-    Windows --> Upload["Upload dap-app-1.0.0.zip after all three pass"]
+    Windows --> Upload["Upload dap-app-1.1.0.zip after all three pass"]
     Linux --> Upload
     Mac --> Upload
 
@@ -331,11 +331,23 @@ Official repositories and documentation for the tools used in this project:
 - [GitHub Actions documentation](https://docs.github.com/en/actions) — Configuring CI workflows and automated checks.
 - [Ruff documentation](https://docs.astral.sh/ruff/) — Checking Python code quality and formatting.
 
-## Upcoming release 1.1.0
+## Release 1.1.0
 
-- **Automated frontend tests.** Test Streamlit form validation, report review
-  actions, and error messages when backend requests fail.
+- **Automated frontend and expanded backend tests.** Cover form validation,
+  report review, backend recovery, session times, and concurrent report changes.
+- **Service status caching.** Reuse status results for 60 seconds while keeping
+  startup checks, automatic refresh, and immediate manual retries.
+- **Database startup initialization.** Create or upgrade the schema once at
+  startup instead of checking it during every storage operation.
+- **Paginated report history.** Browse 25 reports per page with Previous and Next
+  controls. API consumers can use `limit` and `offset` query parameters.
+- **HTTP connection reuse.** Reuse the backend Ollama client and frontend
+  clients within each browser session, with cleanup when they are released.
+
+## Future Improvements
+
 - **Document scanning with OCR.** Extract text from scanned documents and review
   it before using it as session notes in the app.
-- **Docker Compose setup.** Run the Streamlit frontend, FastAPI backend, and
+- **Containerization planned for 1.2.0.** Use Docker Compose to run the
+  Streamlit frontend, FastAPI backend, and
   Ollama as separate containers on one machine.

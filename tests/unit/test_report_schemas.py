@@ -125,6 +125,7 @@ def test_time_edits_allow_valid_ranges_and_explicit_clearing(changes):
 
     edited.validate_time_range(saved)
 
+    # Explicit nulls must remain distinguishable from omitted fields in PATCH requests.
     assert edited.model_fields_set == set(changes)
     assert saved.start_time == time(9)
     assert saved.end_time == time(9, 25)

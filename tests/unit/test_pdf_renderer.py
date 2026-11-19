@@ -99,6 +99,7 @@ def test_render_report_pdf_fills_risk_and_reporting(safety_concern, mark_left):
     marks = []
 
     def collect_marks(text, page_matrix, text_matrix, font, font_size):
+        """Collect checkbox x-coordinates from the merged PDF text transforms."""
         if text.strip() == "x":
             marks.append(page_matrix[4] + text_matrix[4])
 

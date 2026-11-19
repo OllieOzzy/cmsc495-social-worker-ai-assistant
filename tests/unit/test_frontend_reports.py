@@ -37,7 +37,11 @@ def report():
 
 @pytest.fixture
 def ui(monkeypatch):
-    """Render saved values and leave every report action unselected by default."""
+    """Echo saved values and leave report actions unselected until a test opts in.
+
+    RerunRequested stops the handler where Streamlit would restart rendering.
+    Metadata widgets and PDF controls are isolated in their own test modules.
+    """
     streamlit = MagicMock()
     streamlit.session_state = {}
     streamlit.rerun.side_effect = RerunRequested

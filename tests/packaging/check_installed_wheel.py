@@ -1,6 +1,8 @@
 """Verify the launcher and handwritten report workflow from an installed wheel.
 
-CI runs this script directly after installing the wheel.
+CI runs this script directly with Python's -I option after installing the wheel
+in a fresh environment. It is not a pytest test: it starts real server processes
+and uses AppTest on the installed frontend, without requiring Ollama.
 """
 
 import os
@@ -66,6 +68,7 @@ def check_handwritten_report(client: httpx.Client) -> None:
     assert saved["sections"]["data"] == _DATA
     response = client.get(f"{report_url}/download").raise_for_status()
     assert response.headers["content-type"] == "application/pdf"
+    # Read the exported content to verify the packaged template and saved DAP text.
     pdf = PdfReader(BytesIO(response.content), strict=True)
     assert _DATA in pdf.pages[0].extract_text()
 
@@ -73,6 +76,7 @@ def check_handwritten_report(client: httpx.Client) -> None:
 def stop_launcher(process: subprocess.Popen) -> None:
     """Stop the launcher and its server processes after the check."""
     if os.name == "nt":
+        # Terminate the process tree so Uvicorn and Streamlit do not survive the check.
         if process.poll() is None:
             subprocess.run(
                 ["taskkill", "/pid", str(process.pid), "/t", "/f"],
@@ -82,6 +86,7 @@ def stop_launcher(process: subprocess.Popen) -> None:
             )
         process.wait(timeout=10)
     else:
+        # start_new_session gives the launcher and its children one process group.
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGTERM)
         process.wait(timeout=10)
@@ -102,6 +107,7 @@ def main() -> None:
             "STREAMLIT_SERVER_HEADLESS": "true",
             "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
         }
+        # The check must resolve installed packages, not import code from the checkout.
         env.pop("PYTHONPATH", None)
         # Keep launcher output in the CI log. On Windows, child processes can
         # keep an inherited log file open and block temporary directory cleanup.

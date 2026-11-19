@@ -1,4 +1,7 @@
-"""Test SQLite connection setup and cleanup."""
+"""Test transaction cleanup and separate schema initialization with mocked SQLite.
+
+Integration tests verify startup, real table creation, and older-schema upgrades.
+"""
 
 from unittest.mock import ANY, MagicMock
 

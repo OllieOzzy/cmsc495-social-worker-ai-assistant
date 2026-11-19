@@ -1,4 +1,8 @@
-"""Exercise report editing through Streamlit, FastAPI, and a temporary database."""
+"""Exercise report workflows through Streamlit, FastAPI, and temporary SQLite.
+
+AppTest drives widgets while HTTP requests use an in-process TestClient.
+Only the optional Ollama status response is faked; report storage is real.
+"""
 
 from pathlib import Path
 from unittest.mock import Mock
@@ -61,9 +65,11 @@ def test_history_navigation_and_filters_use_real_backend_pages(backend_for_ui):
     app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
 
     def button(label):
+        """Find a sidebar action in the current render after each rerun."""
         return next(widget for widget in app.sidebar.button if widget.label == label)
 
     def history():
+        """Read the current report selector rather than a widget from an older page."""
         return next(
             widget for widget in app.sidebar.selectbox if widget.label == "Report"
         )

@@ -1,4 +1,8 @@
-"""Verify PDF downloads from reports saved through the API."""
+"""Verify PDF downloads from reports saved through the API and temporary SQLite.
+
+Tests use the real packaged template and extract text from exported PDF bytes.
+They check content and review markings rather than a screenshot of the layout.
+"""
 
 from io import BytesIO
 from uuid import uuid4

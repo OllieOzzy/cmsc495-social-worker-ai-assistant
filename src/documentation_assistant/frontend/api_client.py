@@ -12,7 +12,11 @@ API_URL = os.getenv("DAP_API_URL", "http://127.0.0.1:8000").rstrip("/")
     scope="session", show_spinner=False, on_release=lambda client: client.close()
 )
 def _get_http_client(trust_env: bool = True) -> httpx.Client:
-    """Reuse a connection pool per session and proxy policy; close it on release."""
+    """Reuse a client within one browser session and close it on cache release.
+
+    The proxy-policy argument gives backend and Ollama requests separate
+    pools. Only clients are cached; each action still sends a fresh request.
+    """
     return httpx.Client(trust_env=trust_env)
 
 

@@ -1,4 +1,8 @@
-"""Smoke-test the report workflow against a running Ollama server."""
+"""Smoke-test generation and persistence against a running Ollama server.
+
+Opt in with RUN_LIVE_OLLAMA=1 and install the configured OLLAMA_MODEL first.
+The test uses temporary SQLite storage and does not start or stop Ollama.
+"""
 
 import os
 
@@ -28,6 +32,7 @@ def test_live_ollama_generation_saves_a_draft(monkeypatch, tmp_path):
         assert all(section.strip() for section in sections.values())
         assert sections["plan"] == "Not documented."
 
+    # A new application instance must recover the draft from SQLite, not memory.
     with TestClient(create_app()) as client:
         response = client.get(f"/reports/{draft['report_id']}")
         assert response.status_code == 200, response.text

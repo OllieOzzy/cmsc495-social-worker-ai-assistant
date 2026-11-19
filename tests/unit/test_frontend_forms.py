@@ -13,6 +13,7 @@ def ui(monkeypatch):
     """Return saved widget values with isolated Streamlit session state."""
     streamlit = MagicMock()
     streamlit.session_state = {}
+    # Echo widget prefills unless a test overrides them to simulate user edits.
     streamlit.text_input.side_effect = lambda label, **kwargs: kwargs["value"]
     streamlit.text_area.side_effect = lambda label, **kwargs: kwargs["value"]
     streamlit.selectbox.side_effect = lambda label, **kwargs: kwargs["options"][

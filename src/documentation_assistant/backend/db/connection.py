@@ -34,7 +34,11 @@ _ADDED_COLUMNS = {
 
 @contextmanager
 def connect(path: Path) -> Iterator[sqlite3.Connection]:
-    """Open an initialized SQLite database and manage its transaction."""
+    """Open SQLite and commit or roll back the caller's transaction.
+
+    Call initialize_database before storage operations. Connections do not
+    create directories or check the schema; backend startup handles that work.
+    """
     # Commit or roll back the transaction before closing the connection.
     with closing(sqlite3.connect(path)) as connection, connection:
         yield connection

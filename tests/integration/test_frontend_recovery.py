@@ -1,4 +1,8 @@
-"""Exercise frontend recovery through Streamlit widgets with mocked HTTP replies."""
+"""Exercise frontend recovery and HTTP client lifecycle through Streamlit widgets.
+
+HTTP replies are mocked; no backend process or local Ollama server is needed.
+The lifecycle case uses real HTTPX clients with an in-memory transport.
+"""
 
 from pathlib import Path
 from unittest.mock import Mock
@@ -33,7 +37,7 @@ def saved_report():
 
 @pytest.fixture
 def ollama_status(monkeypatch):
-    """Allow AI status checks without contacting a running Ollama instance."""
+    """Supply a mock session client whose backend requests each test configures."""
     get = Mock(
         return_value=httpx.Response(
             200,
@@ -52,12 +56,14 @@ def test_http_clients_are_reused_per_session_and_closed_on_release(monkeypatch):
     clients = []
 
     def respond(request):
+        """Return healthy backend and Ollama replies without opening sockets."""
         payload = (
             {"models": []} if request.url.path == "/api/tags" else {"status": "ok"}
         )
         return httpx.Response(200, json=payload)
 
     def make_client(**kwargs):
+        """Track real client instances and the proxy policy used for each pool."""
         client = original_client(transport=httpx.MockTransport(respond), **kwargs)
         clients.append((client, kwargs))
         return client
@@ -118,6 +124,7 @@ def test_retry_opens_saved_draft_without_generating_duplicate(
     fetches = 0
 
     def respond(method, url, **kwargs):
+        """Fail only the first saved-report fetch to reproduce a lost follow-up reply."""
         nonlocal fetches
         request = httpx.Request(method, url)
         if request.url.path == "/health":
@@ -175,6 +182,7 @@ def test_backend_reconnection_loads_history_after_status_check(
     reachable = False
 
     def respond(method, url, **kwargs):
+        """Expose a switchable health check and the existing saved report."""
         request = httpx.Request(method, url)
         if request.url.path == "/health":
             if not reachable:

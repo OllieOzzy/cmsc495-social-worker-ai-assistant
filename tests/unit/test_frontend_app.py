@@ -27,6 +27,8 @@ def app(monkeypatch):
     streamlit.button.return_value = False
     streamlit.stop.side_effect = RenderStopped
     streamlit.rerun.side_effect = RenderStopped
+    # run_path executes the entry point again, so replace its streamlit import
+    # as well as the report handlers it imports from already-loaded modules.
     monkeypatch.setitem(sys.modules, "streamlit", streamlit)
     handlers = {}
     for name in ("new_report", "open_report", "review_report"):

@@ -1,4 +1,8 @@
-"""Test report handlers with generation and storage mocked."""
+"""Call report handlers directly with generation and storage mocked.
+
+These tests isolate response mapping and dependency arguments. Integration
+tests cover routing, validation, application lifespan, and real persistence.
+"""
 
 import asyncio
 from types import SimpleNamespace

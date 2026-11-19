@@ -10,7 +10,11 @@ from documentation_assistant.frontend import api_client
 
 @pytest.fixture
 def api_mocks(monkeypatch):
-    """Replace HTTP requests and Streamlit error messages for each test."""
+    """Replace the cached client and error display without creating a UI session.
+
+    Responses remain real HTTPX objects so status errors and JSON parsing
+    behave as they do for network replies.
+    """
     request = Mock()
     error = Mock()
     monkeypatch.setattr(

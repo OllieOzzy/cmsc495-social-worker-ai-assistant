@@ -23,6 +23,7 @@ async def generate_dap(notes: str, client: httpx.AsyncClient) -> DAPSections:
     Raise InvalidModelResponse if Ollama's reply is incomplete or malformed.
     The reviewer checks the draft's accuracy against the source notes.
     The application owns the client and reuses its connections across requests.
+    Leave it open after generation, including failures, for later requests.
     """
     response = await client.post(
         "http://127.0.0.1:11434/api/chat",

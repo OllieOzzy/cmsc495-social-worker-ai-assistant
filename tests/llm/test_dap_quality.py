@@ -1,4 +1,9 @@
-"""Check live DAP drafts against synthetic notes and show them for review."""
+"""Check live DAP drafts against synthetic notes and show them for review.
+
+These opt-in tests need a running Ollama server and its configured model.
+Keyword and placeholder checks catch selected regressions; the printed review
+checklist still requires a person to assess meaning and unsupported claims.
+"""
 
 import os
 import re
