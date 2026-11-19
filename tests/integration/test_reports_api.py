@@ -1,9 +1,12 @@
 """Test report endpoints with temporary SQLite storage and mocked Ollama HTTP."""
 
+import asyncio
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime
+from threading import Event
 from uuid import uuid4
 
 import httpx
@@ -918,3 +921,95 @@ def test_invalid_ollama_reply_is_not_saved(app, mock_ollama):
     assert response.status_code == 502
     assert "Ollama" in response.json()["detail"]
     assert not app.state.database_path.exists()
+
+
+@pytest.mark.parametrize("operation", ["edit", "delete"])
+def test_regeneration_cannot_overwrite_a_concurrent_report_change(
+    app, mock_ollama, operation
+):
+    """Change storage while Ollama is working and reject its outdated result."""
+    generating = Event()
+    finish_generation = Event()
+    generated_sections = {
+        "data": "Generated text from the outdated source notes.",
+        "assessment": "Not documented.",
+        "plan": "Not documented.",
+    }
+
+    async def delayed_reply(request):
+        """Hold the AI reply until another request has modified the report."""
+        generating.set()
+        assert await asyncio.to_thread(finish_generation.wait, timeout=10), (
+            "The competing request did not finish."
+        )
+        return httpx.Response(
+            200,
+            json={"done": True, "message": {"content": json.dumps(generated_sections)}},
+        )
+
+    mock_ollama(delayed_reply)
+    with TestClient(app) as client:
+        initial = (
+            client.post(
+                "/reports/manual",
+                json={"notes": NOTES, "metadata": {"student_name": "Alex Example"}},
+            )
+            .raise_for_status()
+            .json()
+        )
+        path = f"/reports/{initial['report_id']}"
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            regeneration = executor.submit(
+                client.post,
+                f"{path}/regenerate",
+                json={
+                    "revision": initial["revision"],
+                    "notes": "Outdated revised notes.",
+                    "metadata": {"student_name": "Outdated name"},
+                },
+            )
+            try:
+                assert generating.wait(timeout=10), "Regeneration never reached Ollama."
+                if operation == "edit":
+                    latest = (
+                        client.patch(
+                            path,
+                            json={
+                                "revision": initial["revision"],
+                                "notes": "Newer notes saved by another user.",
+                                "sections": {
+                                    **initial["sections"],
+                                    "data": "Newer observation.",
+                                },
+                                "metadata": {"student_name": "Updated Example"},
+                            },
+                        )
+                        .raise_for_status()
+                        .json()
+                    )
+                else:
+                    deleted = client.delete(
+                        path, params={"revision": initial["revision"]}
+                    )
+                    assert deleted.status_code == 204
+            finally:
+                finish_generation.set()
+            response = regeneration.result(timeout=10)
+
+        if operation == "edit":
+            assert response.status_code == 409
+            assert (
+                response.json()["detail"]
+                == "Report changed. Reload the current revision."
+            )
+            assert client.get(path).raise_for_status().json() == latest
+            assert latest["revision"] == initial["revision"] + 1
+            assert latest["metadata"]["draft_source"] == "handwritten"
+            history = client.get("/reports").raise_for_status().json()
+            assert [report["report_id"] for report in history] == [initial["report_id"]]
+        else:
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Report draft not found."
+            assert client.get(path).status_code == 404
+            assert client.get("/reports").raise_for_status().json() == []
