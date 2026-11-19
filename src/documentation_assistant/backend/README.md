@@ -235,9 +235,10 @@ a section. Review the draft against the original notes for accuracy and
 completeness before approving it. Restart FastAPI after editing the prompt so
 it loads the new instructions. [DAP prompt guide](llm/prompts/README.md)
 
-SQLite creates `data/dap.db` on first use of draft storage when the
-backend starts from the repository root. To use another location, set
-`DAP_DB_PATH` before starting the backend.
+SQLite creates `data/dap.db` during backend startup when launched from the
+repository root. Startup also adds missing columns to older databases;
+ordinary report requests do not repeat schema checks. To use another location,
+set `DAP_DB_PATH` before starting the backend.
 
 Use `GET /reports` to find a saved draft without already knowing its ID. Each
 summary contains `report_id`, `status`, and a UTC `created_at` timestamp.
