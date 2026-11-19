@@ -227,6 +227,8 @@ FastAPI, press **Ctrl+C** in its terminal. Saved reports remain in SQLite.
 
 Use **Filter report** and **Open report** under **History Reports** to find a
 saved report. To edit an approved report, select **Reopen as draft**.
+History shows 25 reports per page, newest first. Use **Previous** and **Next**
+to browse matching reports. Applying or clearing filters returns to page one.
 
 ### Service Status
 

@@ -243,6 +243,10 @@ set `DAP_DB_PATH` before starting the backend.
 Use `GET /reports` to find a saved draft without already knowing its ID. Each
 summary contains `report_id`, `status`, and a UTC `created_at` timestamp.
 Drafts saved before timestamps were introduced have `created_at: null`.
+The endpoint returns up to 25 reports by default, newest first. Use `limit`
+(1–100) and `offset` (zero or greater) to request another page, such as
+`GET /reports?limit=25&offset=25` for page two. Filters apply before pagination;
+the response remains a JSON array and returns `[]` beyond the matching results.
 When generating a draft, you can include a `metadata` object with
 `student_name`, `student_id`, `school`, `grade`, `date_of_service`, and
 `social_worker_name`.
