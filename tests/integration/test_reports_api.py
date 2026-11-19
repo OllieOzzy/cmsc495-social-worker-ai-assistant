@@ -895,6 +895,39 @@ def test_get_report_rejects_malformed_id(app):
     assert response.json()["detail"][0]["loc"] == ["path", "report_id"]
 
 
+@pytest.mark.parametrize(
+    ("method", "suffix", "payload"),
+    [
+        ("PATCH", "", {"revision": 1, "notes": "Synthetic correction."}),
+        ("POST", "/approve", {"revision": 1, "approved_by": "Taylor Example"}),
+    ],
+    ids=["edit", "approve"],
+)
+def test_missing_report_actions_return_404_without_changing_storage(
+    app, method, suffix, payload
+):
+    """A valid action on an unknown UUID must not create or modify a report."""
+    with TestClient(app) as client:
+        saved = (
+            client.post("/reports/manual", json={"notes": NOTES})
+            .raise_for_status()
+            .json()
+        )
+        history_before = client.get("/reports").raise_for_status().json()
+        missing_path = f"/reports/{uuid4()}"
+
+        response = client.request(method, f"{missing_path}{suffix}", json=payload)
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Report draft not found."}
+        assert client.get(missing_path).status_code == 404
+        assert client.get("/reports").raise_for_status().json() == history_before
+        assert (
+            client.get(f"/reports/{saved['report_id']}").raise_for_status().json()
+            == saved
+        )
+
+
 def test_blank_notes_never_reach_ollama(app, mock_ollama):
     """Verify request validation rejects blank notes before generation."""
 
