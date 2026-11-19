@@ -222,9 +222,12 @@ jobs:
           python -m coverage report --show-missing --precision=2 --fail-under=90 \
             --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
-  # Build once so all three runners test the same wheel.
+  # Build on main so branch and PR checks skip the wheel jobs.
   build-wheel:
     name: Build Wheel
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs:
       - workflow-lint
       - workflow-formatting
@@ -299,13 +302,10 @@ jobs:
           & $python -m pip check
           & $python -I tests/packaging/check_installed_wheel.py
 
-  # Upload the release artifact for pull requests to main and manual runs on main.
+  # Upload the release artifact after the main-branch wheel validations pass.
   upload-wheel:
     name: Upload Validated Wheel
     needs: [build-wheel, validate-wheel]
-    if: >-
-      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

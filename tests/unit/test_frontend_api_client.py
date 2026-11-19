@@ -118,13 +118,128 @@ def test_raw_pdf_returns_response_without_decoding(api_mocks):
     error.assert_not_called()
 
 
-def test_connection_failure_shows_error(api_mocks):
+@pytest.mark.parametrize("failure", [httpx.ConnectError, httpx.ReadTimeout])
+def test_connection_failure_shows_error(api_mocks, failure):
     """Keep outages visible without raising an HTTP exception in Streamlit."""
     request, error = api_mocks
-    request.side_effect = httpx.ConnectError("Connection refused")
+    request.side_effect = failure("The server did not respond")
 
     assert api_client.request_api("GET", "/reports") is None
 
     error.assert_called_once_with(
         "Could not reach the report server. Check that FastAPI is running."
     )
+
+
+def test_request_forwards_payload_filters_and_timeout(api_mocks, monkeypatch):
+    """Send report content and options to the configured backend address."""
+    request, error = api_mocks
+    monkeypatch.setattr(api_client, "API_URL", "http://example.test:9000")
+    payload = {"revision": 2, "notes": "Synthetic session notes."}
+    params = {"status": "draft"}
+    request.return_value = httpx.Response(
+        200,
+        json={"revision": 3},
+        request=httpx.Request("PATCH", "http://example.test:9000/reports/example"),
+    )
+
+    result = api_client.request_api(
+        "PATCH", "/reports/example", payload=payload, params=params, timeout=255
+    )
+
+    assert result == {"revision": 3}
+    request.assert_called_once_with(
+        "PATCH",
+        "http://example.test:9000/reports/example",
+        json=payload,
+        params=params,
+        timeout=255,
+    )
+    error.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [400, 404, 422, 500])
+def test_other_http_errors_show_status_message(api_mocks, status):
+    """Explain unsuccessful requests even when the response is an HTML page."""
+    request, error = api_mocks
+    request.return_value = httpx.Response(
+        status,
+        text="<html>Request failed</html>",
+        request=httpx.Request("GET", "http://test/reports"),
+    )
+
+    assert api_client.request_api("GET", "/reports") is None
+
+    error.assert_called_once_with(
+        f"The server could not complete the request ({status})."
+    )
+
+
+def test_raw_download_failure_shows_error(api_mocks):
+    """Handle a failed PDF download before returning a raw HTTP response."""
+    request, error = api_mocks
+    request.return_value = httpx.Response(
+        404, request=httpx.Request("GET", "http://test/reports/example/download")
+    )
+
+    assert api_client.request_api("GET", "/reports/example/download", raw=True) is None
+
+    error.assert_called_once_with("The server could not complete the request (404).")
+
+
+@pytest.fixture
+def ollama_get(monkeypatch):
+    """Replace the local Ollama status request without starting a server."""
+    get = Mock()
+    monkeypatch.setattr(api_client.httpx, "get", get)
+    return get
+
+
+@pytest.mark.parametrize("models", [[], [{"name": "qwen3:8b"}]])
+def test_ollama_status_accepts_empty_and_populated_model_lists(ollama_get, models):
+    """A reachable Ollama server can have zero models installed."""
+    ollama_get.return_value = httpx.Response(
+        200,
+        json={"models": models},
+        request=httpx.Request("GET", "http://127.0.0.1:11434/api/tags"),
+    )
+
+    assert api_client.ollama_is_reachable() is True
+
+    ollama_get.assert_called_once_with(
+        "http://127.0.0.1:11434/api/tags", timeout=3, trust_env=False
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["invalid JSON", "null", "[]", "{}", '{"models": null}', '{"models": {}}'],
+)
+def test_ollama_status_rejects_unusable_model_lists(ollama_get, body):
+    """An unexpected response must not mark AI Status as reachable."""
+    ollama_get.return_value = httpx.Response(
+        200,
+        text=body,
+        request=httpx.Request("GET", "http://127.0.0.1:11434/api/tags"),
+    )
+
+    assert api_client.ollama_is_reachable() is False
+
+
+@pytest.mark.parametrize("failure", [httpx.ConnectError, httpx.ReadTimeout])
+def test_ollama_status_handles_connection_failures(ollama_get, failure):
+    """Treat an unavailable or slow Ollama server as unreachable."""
+    ollama_get.side_effect = failure("The local Ollama server did not respond")
+
+    assert api_client.ollama_is_reachable() is False
+
+
+def test_ollama_status_handles_http_errors(ollama_get):
+    """An error response must not mark AI Status as reachable."""
+    ollama_get.return_value = httpx.Response(
+        503,
+        json={"models": []},
+        request=httpx.Request("GET", "http://127.0.0.1:11434/api/tags"),
+    )
+
+    assert api_client.ollama_is_reachable() is False
