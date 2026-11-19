@@ -76,6 +76,53 @@ def mock_ollama(monkeypatch):
     return configure
 
 
+def test_history_pages_are_bounded_and_filters_apply_before_pagination(app):
+    """Traverse filtered pages without duplicates or missing matching reports."""
+    with TestClient(app) as client:
+        all_ids = []
+        matching_ids = []
+        for index in range(55):
+            response = client.post(
+                "/reports/manual",
+                json={"metadata": {"school": "Match" if index % 2 == 0 else "Other"}},
+            )
+            assert response.status_code == 201
+            report_id = response.json()["report_id"]
+            all_ids.append(report_id)
+            if index % 2 == 0:
+                matching_ids.append(report_id)
+
+        default_page = client.get("/reports").json()
+        assert [row["report_id"] for row in default_page] == all_ids[::-1][:25]
+        pages = [
+            client.get(
+                "/reports", params={"school": "Match", "limit": 11, "offset": offset}
+            )
+            .raise_for_status()
+            .json()
+            for offset in (0, 11, 22, 33)
+        ]
+        assert [len(page) for page in pages] == [11, 11, 6, 0]
+        assert [row["report_id"] for page in pages for row in page] == matching_ids[
+            ::-1
+        ]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 101},
+        {"offset": -1},
+        {"offset": 2**63},
+    ],
+)
+def test_history_rejects_invalid_pagination(app, params):
+    """Reject invalid bounds before SQLite executes a history query."""
+    with TestClient(app) as client:
+        assert client.get("/reports", params=params).status_code == 422
+
+
 def test_generation_returns_an_unapproved_draft(app, mock_ollama):
     """Verify generation saves an unapproved draft with its source notes."""
     sections = {

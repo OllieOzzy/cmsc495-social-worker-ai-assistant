@@ -102,7 +102,7 @@ class SavedReportMetadata(ReportMetadata):
 
 
 class ReportFilters(BaseModel):
-    """Validate optional report search fields and service date bounds."""
+    """Validate report search fields, service dates, and pagination bounds."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -116,6 +116,8 @@ class ReportFilters(BaseModel):
 
     status: ReportStatus | None = None
     approved_by: MetadataText | None = None
+    limit: Annotated[int, Field(ge=1, le=100)] = 25
+    offset: Annotated[int, Field(ge=0, le=2**63 - 1)] = 0
 
     # Compare the two dates after Pydantic has parsed both filter fields.
     @model_validator(mode="after")

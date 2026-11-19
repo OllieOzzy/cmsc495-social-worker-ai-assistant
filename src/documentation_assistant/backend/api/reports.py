@@ -172,7 +172,7 @@ async def _generate_sections(notes: str) -> DAPSections:
 def list_reports(
     request: Request, filters: Annotated[ReportFilters, Query()]
 ) -> list[ReportSummary]:
-    """Return saved report summaries matching the filters, newest first."""
+    """Return a page of saved report summaries matching the filters, newest first."""
     return list_drafts(request.app.state.database_path, filters)
 
 
