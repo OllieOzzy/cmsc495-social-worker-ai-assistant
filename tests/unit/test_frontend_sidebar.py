@@ -299,6 +299,65 @@ def test_manual_ai_check_shows_service_result(ui, monkeypatch, reachable):
     assert ("#22a366" if reachable else "#df5353") in ui.html.call_args_list[1].args[0]
 
 
+@pytest.mark.parametrize("reachable", [False, True])
+def test_status_reruns_reuse_session_results(ui, monkeypatch, reachable):
+    """Frequent page reruns reuse both results, including an offline backend."""
+    now = Mock(return_value=100)
+    monkeypatch.setattr(sidebar, "monotonic", now)
+    request = Mock(return_value={"status": "ok"} if reachable else None)
+    ollama = Mock(return_value=reachable)
+    monkeypatch.setattr(sidebar, "request_api", request)
+    monkeypatch.setattr(sidebar, "ollama_is_reachable", ollama)
+
+    assert _show_service_status() is reachable
+    now.return_value = 159
+    assert _show_service_status() is reachable
+
+    request.assert_called_once_with("GET", "/health", timeout=3)
+    ollama.assert_called_once_with()
+    if not reachable:
+        ui.error.assert_called_once_with(
+            "Could not reach the report server. Check that FastAPI is running."
+        )
+
+
+def test_status_refreshes_at_sixty_seconds(ui, monkeypatch):
+    """An expired result triggers new requests and updates both button colors."""
+    now = Mock(return_value=100)
+    monkeypatch.setattr(sidebar, "monotonic", now)
+    request = Mock(side_effect=[None, {"status": "ok"}])
+    ollama = Mock(side_effect=[False, True])
+    monkeypatch.setattr(sidebar, "request_api", request)
+    monkeypatch.setattr(sidebar, "ollama_is_reachable", ollama)
+
+    assert _show_service_status() is False
+    now.return_value = 160
+    assert _show_service_status() is True
+
+    assert request.call_count == 2
+    assert ollama.call_count == 2
+    assert all("#22a366" in call.args[0] for call in ui.html.call_args_list[-2:])
+
+
+@pytest.mark.parametrize("service", ["backend", "ollama"])
+def test_manual_status_check_bypasses_only_its_own_cache(ui, monkeypatch, service):
+    """Manual retry refreshes the selected service even before its result expires."""
+    monkeypatch.setattr(sidebar, "monotonic", Mock(return_value=100))
+    request = Mock(return_value={"status": "ok"})
+    ollama = Mock(return_value=True)
+    monkeypatch.setattr(sidebar, "request_api", request)
+    monkeypatch.setattr(sidebar, "ollama_is_reachable", ollama)
+    _show_service_status()
+    request.reset_mock()
+    ollama.reset_mock()
+    ui.button.side_effect = [service == "backend", service == "ollama"]
+
+    assert _show_service_status() is True
+
+    assert request.call_count == (1 if service == "backend" else 0)
+    assert ollama.call_count == (1 if service == "ollama" else 0)
+
+
 def test_new_report_resets_selection_and_reruns(ui, monkeypatch):
     """Starting a new report resets entry state before reloading the page."""
     monkeypatch.setattr(sidebar, "show_service_status", Mock(return_value=True))
