@@ -12,7 +12,9 @@ from fastapi import HTTPException
 from documentation_assistant.backend.api import reports
 from documentation_assistant.backend.schemas.reports import (
     DAPSections,
+    EditReportRequest,
     GenerateReportRequest,
+    RegenerateReportRequest,
     ReportMetadata,
     StoredReportDraft,
 )
@@ -128,3 +130,61 @@ def test_read_report_raises_404_for_missing_draft(monkeypatch, api_request):
         reports.read_report(uuid4(), api_request)
 
     assert error.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("save_result", "status", "message"),
+    [
+        (
+            reports.InvalidSessionTimeRange("End time must be at or after start time."),
+            422,
+            "End time must be at or after start time.",
+        ),
+        (
+            reports.ReviewConflict("Report changed. Reload the current revision."),
+            409,
+            "Report changed. Reload the current revision.",
+        ),
+        (None, 404, "Report draft not found."),
+    ],
+    ids=["invalid-time-range", "revision-conflict", "deleted-report"],
+)
+def test_regeneration_maps_final_storage_failures(
+    monkeypatch, api_request, save_result, status, message
+):
+    """Translate final-save failures after generation without reporting success."""
+    sections = DAPSections(
+        data=NOTES, assessment="Not documented.", plan="Not documented."
+    )
+    current = StoredReportDraft(
+        report_id=uuid4(), notes="Original notes.", sections=sections, revision=3
+    )
+    payload = RegenerateReportRequest(
+        revision=3, notes=NOTES, metadata=ReportMetadata(grade="8")
+    )
+    generate = AsyncMock(return_value=sections)
+    storage = AsyncMock(side_effect=[current, save_result])
+    monkeypatch.setattr(reports, "generate_dap", generate)
+    monkeypatch.setattr(reports, "run_in_threadpool", storage)
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(reports.regenerate_report(current.report_id, payload, api_request))
+
+    assert (error.value.status_code, error.value.detail) == (status, message)
+    generate.assert_awaited_once_with(NOTES)
+    assert storage.await_count == 2
+    lookup, save = storage.await_args_list
+    assert lookup.args == (
+        reports.get_draft,
+        api_request.app.state.database_path,
+        current.report_id,
+    )
+    assert save.args == (
+        reports.edit_draft,
+        api_request.app.state.database_path,
+        current.report_id,
+        EditReportRequest(
+            revision=3, notes=NOTES, sections=sections, metadata=payload.metadata
+        ),
+    )
+    assert save.kwargs == {"ai_assisted": True}
