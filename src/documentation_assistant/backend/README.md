@@ -211,6 +211,12 @@ Start Ollama and run `ollama pull qwen3:8b` if the model is missing. The backend
 uses Ollama on `127.0.0.1:11434`. To use a different installed model, set
 `OLLAMA_MODEL` before starting the backend. [Local Ollama setup guide](../../../docs/local-llm-setup.md)
 
+The backend creates one async HTTP client at startup for generation and
+regeneration. It reuses available connections and closes the client at shutdown.
+Creating the client does not contact Ollama, so manual workflows still work
+with Ollama stopped. The client keeps the 240-second request timeout and
+bypasses environment proxy settings for local Ollama requests.
+
 - PowerShell: `$env:OLLAMA_MODEL = "your-model-tag"`
 - bash or zsh: `export OLLAMA_MODEL="your-model-tag"`
 
