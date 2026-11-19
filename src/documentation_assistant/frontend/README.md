@@ -245,6 +245,50 @@ Open the three-dot menu and select **About** for the project description.
 Select **Report a bug** to open the team's **Contacts** page. Use
 **Back to reports** to return to the report screens.
 
+## Tests
+
+From the repository root, use the Python 3.12 virtual environment created in
+**Local Setup**. Install the test dependencies with
+`python -m pip install -r requirements.txt`.
+
+Run the frontend unit tests:
+
+```shell
+python -m pytest tests/unit -k frontend -v
+```
+
+The unit tests cover API response handling, Ollama status checks, report labels
+and filters, date and time conversion, screen routing, session state, report
+actions, and PDF download controls. They mock HTTP requests and Streamlit
+controls to check each module independently.
+
+Run the frontend integration tests:
+
+```shell
+python -m pytest tests/integration -k frontend -v
+```
+
+The integration tests use Streamlit's `AppTest` to enter values and click buttons.
+Report workflow tests connect to FastAPI's test client and a temporary SQLite
+database. Recovery tests simulate failed HTTP requests and backend reconnection.
+Ollama status responses are mocked, so both suites run without a model download.
+
+| Workflow | What the integration tests verify |
+| --- | --- |
+| Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
+| Backend reconnection | A backend outage skips history loading, and a manual status check restores history after recovery. |
+| Save and reopen | All three saved DAP sections persist after opening another report. |
+| Approval and reopening | Unsaved edits block approval, approved fields become read-only, and confirmed reopening restores editing. |
+| Concurrent edits | A stale save displays a conflict, preserves pending edits, and protects the newer saved revision. |
+| Draft deletion | Confirmation is required, deletion refreshes history, and the interface returns to blank session notes. |
+| Blank notes | AI generation requires notes, while handwritten drafts can start with blank notes. |
+| Back to notes | Pending DAP and metadata edits carry into the notes screen and save to the same report. |
+| Discard changes | Saved values are restored without writing pending changes to SQLite. |
+
+Both suites run in the existing **Unit Tests** and **Integration Tests** CI jobs.
+The installed-wheel validation also exercises handwritten draft creation, saving,
+and PDF export on Windows, Ubuntu, and macOS.
+
 ## Troubleshooting
 
 | What you see | What to do |
