@@ -6,6 +6,13 @@ import pytest
 
 from documentation_assistant.frontend import sidebar
 
+# Test the status handler independently of Streamlit's fragment scheduler.
+_show_service_status = sidebar.show_service_status.__wrapped__
+
+
+class RerunRequested(Exception):
+    """Stop the render after Streamlit requests a full rerun."""
+
 
 @pytest.mark.parametrize(
     ("metadata", "expected"),
@@ -203,3 +210,145 @@ def test_open_report_uses_selected_id(ui, monkeypatch):
     sidebar.show_sidebar()
 
     open_report.assert_called_once_with("second-report")
+
+
+@pytest.mark.parametrize("reachable", [False, True])
+def test_status_button_color_reflects_reachability(ui, reachable):
+    """Scope each button's status styling to its widget key."""
+    sidebar.tint_status_button("check_backend", reachable)
+
+    style = ui.html.call_args.args[0]
+    assert ".st-key-check_backend button" in style
+    assert ("#22a366" if reachable else "#df5353") in style
+
+
+@pytest.mark.parametrize(
+    ("health", "expected"),
+    [
+        ({"status": "ok"}, True),
+        ({"status": "error"}, False),
+        ({}, False),
+        (None, False),
+        ([], False),
+    ],
+)
+def test_status_checks_backend_response_without_requiring_a_click(
+    ui, monkeypatch, health, expected
+):
+    """Only the expected health response marks the backend as reachable."""
+    request = Mock(return_value=health)
+    ollama = Mock(return_value=True)
+    monkeypatch.setattr(sidebar, "request_api", request)
+    monkeypatch.setattr(sidebar, "ollama_is_reachable", ollama)
+
+    assert _show_service_status() is expected
+
+    request.assert_called_once_with("GET", "/health", timeout=3)
+    ollama.assert_called_once_with()
+    styles = [call.args[0] for call in ui.html.call_args_list]
+    assert len(styles) == 2
+    assert ("#22a366" if expected else "#df5353") in styles[0]
+    assert "#22a366" in styles[1]
+    ui.success.assert_not_called()
+
+
+def test_manual_backend_check_reports_success_when_history_is_loaded(ui, monkeypatch):
+    """A manual check confirms availability without rerunning loaded history."""
+    ui.button.side_effect = [True, False]
+    ui.session_state["history_waiting_for_backend"] = False
+    monkeypatch.setattr(sidebar, "request_api", Mock(return_value={"status": "ok"}))
+    monkeypatch.setattr(sidebar, "ollama_is_reachable", Mock(return_value=True))
+
+    assert _show_service_status() is True
+
+    ui.success.assert_called_once_with("FastAPI is reachable.")
+    ui.rerun.assert_not_called()
+
+
+def test_backend_recheck_requests_rerun_for_waiting_history(ui, monkeypatch):
+    """Once the backend returns, a manual check reloads the report sidebar."""
+    ui.button.side_effect = [True, False]
+    ui.session_state["history_waiting_for_backend"] = True
+    ui.rerun.side_effect = RerunRequested
+    monkeypatch.setattr(sidebar, "request_api", Mock(return_value={"status": "ok"}))
+    monkeypatch.setattr(sidebar, "ollama_is_reachable", Mock(return_value=True))
+
+    with pytest.raises(RerunRequested):
+        _show_service_status()
+
+    ui.rerun.assert_called_once_with()
+
+
+@pytest.mark.parametrize("reachable", [False, True])
+def test_manual_ai_check_shows_service_result(ui, monkeypatch, reachable):
+    """Distinguish a reachable Ollama instance from an unavailable AI service."""
+    ui.button.side_effect = [False, True]
+    monkeypatch.setattr(sidebar, "request_api", Mock(return_value={"status": "ok"}))
+    monkeypatch.setattr(sidebar, "ollama_is_reachable", Mock(return_value=reachable))
+
+    assert _show_service_status() is True
+
+    if reachable:
+        ui.success.assert_called_once_with("Ollama is reachable.")
+        ui.error.assert_not_called()
+    else:
+        ui.error.assert_called_once_with(
+            "Could not reach local Ollama. Check that it is running."
+        )
+        ui.success.assert_not_called()
+    assert ("#22a366" if reachable else "#df5353") in ui.html.call_args_list[1].args[0]
+
+
+def test_new_report_resets_selection_and_reruns(ui, monkeypatch):
+    """Starting a new report resets entry state before reloading the page."""
+    monkeypatch.setattr(sidebar, "show_service_status", Mock(return_value=True))
+    reset = Mock()
+    monkeypatch.setattr(sidebar, "reset_report_entry", reset)
+    request = Mock()
+    monkeypatch.setattr(sidebar, "request_api", request)
+    ui.button.return_value = True
+    ui.rerun.side_effect = RerunRequested
+
+    with pytest.raises(RerunRequested):
+        sidebar.show_sidebar()
+
+    reset.assert_called_once_with()
+    ui.rerun.assert_called_once_with()
+    request.assert_not_called()
+
+
+def test_failed_history_fetch_does_not_show_empty_history_message(ui, monkeypatch):
+    """A failed query must not tell the user there are no saved reports."""
+    monkeypatch.setattr(sidebar, "show_service_status", Mock(return_value=True))
+    monkeypatch.setattr(sidebar, "report_filters", Mock(return_value={}))
+    monkeypatch.setattr(sidebar, "request_api", Mock(return_value=None))
+    open_report = Mock()
+    monkeypatch.setattr(sidebar, "open_report", open_report)
+
+    sidebar.show_sidebar()
+
+    ui.caption.assert_not_called()
+    ui.selectbox.assert_not_called()
+    open_report.assert_not_called()
+
+
+def test_history_selection_waits_for_open_button(ui, monkeypatch):
+    """Listing saved reports must not automatically open the selected item."""
+    monkeypatch.setattr(sidebar, "show_service_status", Mock(return_value=True))
+    monkeypatch.setattr(sidebar, "report_filters", Mock(return_value={}))
+    monkeypatch.setattr(
+        sidebar,
+        "request_api",
+        Mock(return_value=[{"report_id": "example-report", "status": "draft"}]),
+    )
+    open_report = Mock()
+    monkeypatch.setattr(sidebar, "open_report", open_report)
+
+    sidebar.show_sidebar()
+
+    open_report.assert_not_called()
+    options = ui.selectbox.call_args.kwargs
+    assert options["options"] == ["example-report"]
+    assert (
+        options["format_func"]("example-report") == "Untitled report · example- · Draft"
+    )
