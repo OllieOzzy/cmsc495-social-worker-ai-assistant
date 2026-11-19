@@ -202,6 +202,12 @@ Open the **Local URL** printed by Streamlit, usually `http://localhost:8501`.
 The frontend uses `http://127.0.0.1:8000` for FastAPI by default. If FastAPI runs
 at a different address, set `DAP_API_URL` before launching Streamlit.
 
+HTTP clients are reused across reruns within each browser session. Backend
+requests and Ollama status checks use separate connection pools to preserve
+their proxy settings. Streamlit closes the clients when it releases the
+session's cached resources. Report responses and PDF contents are not cached
+by these clients.
+
 Start Ollama when you want to generate or regenerate an AI-assisted draft.
 You can create and review manual drafts with FastAPI running and Ollama
 stopped. [Local Ollama setup guide](../../../docs/local-llm-setup.md)
