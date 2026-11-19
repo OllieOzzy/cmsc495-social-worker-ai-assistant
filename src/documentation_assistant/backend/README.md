@@ -333,7 +333,30 @@ A missing report returns `404`. Downloading works with Ollama stopped.
 
 ## Tests
 
-Run the unit and integration tests from the repository root:
+Run the backend unit and integration tests from the repository root. These
+tests use mocked Ollama responses and temporary databases, so they do not
+require a running FastAPI server or Ollama and do not change saved reports.
+
+```shell
+python -m pytest tests/unit -k "not frontend" -v
+python -m pytest tests/integration -k "not frontend" -v
+```
+
+| Test group | Coverage |
+| --- | --- |
+| Unit: schemas | Notes and DAP validation, local 24-hour session times, partial time updates, and duration calculations. |
+| Unit: storage and connections | Saving and mapping reports, missing records, connection setup, and transaction cleanup. |
+| Unit: API handlers and Ollama client | Health responses, AI response validation and failures, and HTTP error mapping when saving regenerated reports. |
+| Unit: PDF renderer | Field rendering, draft and approval markings, and continuation pages. |
+| Integration: report API | Creation, filtering, editing, approval, reopening, deletion, missing reports, and stale revisions using real SQLite storage. |
+| Integration: AI generation | Mocked generation and regeneration through FastAPI, including edits or deletion while generation is in progress. |
+| Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
+| Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |
+
+The database unit tests cover the existing-column path; the compatibility
+integration test exercises the missing-column upgrade against real SQLite.
+
+To run the backend and frontend suites together:
 
 ```shell
 python -m pytest tests/unit tests/integration -v
