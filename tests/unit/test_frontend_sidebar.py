@@ -72,6 +72,7 @@ def test_clear_filters_preserves_unrelated_session_state(ui):
         filter_date_from="2026-11-01",
         filter_date_to="2026-11-18",
         active_report_filters={"status": "draft"},
+        history_offset=25,
         report={"report_id": "example"},
     )
 
@@ -99,6 +100,7 @@ def test_applied_filters_trim_text_and_omit_empty_values(ui, monkeypatch):
     ui.text_input.side_effect = [" Alex ", " ", " Example School ", "", "", " Taylor "]
     ui.selectbox.return_value = "draft"
     ui.form_submit_button.side_effect = [True, False]
+    ui.session_state["history_offset"] = 25
     monkeypatch.setattr(
         sidebar, "date_input", Mock(side_effect=["2026-11-01", "2026-11-18"])
     )
@@ -113,6 +115,7 @@ def test_applied_filters_trim_text_and_omit_empty_values(ui, monkeypatch):
 
     assert sidebar.report_filters() == expected
     assert ui.session_state["active_report_filters"] == expected
+    assert "history_offset" not in ui.session_state
     ui.error.assert_not_called()
 
 
@@ -183,7 +186,9 @@ def test_empty_history_shows_contextual_message(ui, monkeypatch, filters, messag
 
     sidebar.show_sidebar()
 
-    request.assert_called_once_with("GET", "/reports", params=filters)
+    request.assert_called_once_with(
+        "GET", "/reports", params={**filters, "limit": 26, "offset": 0}
+    )
     assert ui.session_state["history_waiting_for_backend"] is False
     ui.caption.assert_called_once_with(message)
 
@@ -411,3 +416,44 @@ def test_history_selection_waits_for_open_button(ui, monkeypatch):
     assert (
         options["format_func"]("example-report") == "Untitled report · example- · Draft"
     )
+
+
+@pytest.mark.parametrize(
+    ("offset", "previous", "expected_offset"), [(0, False, 25), (25, True, 0)]
+)
+def test_history_page_navigation(ui, monkeypatch, offset, previous, expected_offset):
+    """Show only 25 reports and request the adjacent page when clicked."""
+    monkeypatch.setattr(sidebar, "show_service_status", Mock(return_value=True))
+    monkeypatch.setattr(sidebar, "report_filters", Mock(return_value={"grade": "8"}))
+    request = Mock(
+        return_value=[
+            {"report_id": str(index), "status": "draft"} for index in range(26)
+        ]
+    )
+    monkeypatch.setattr(sidebar, "request_api", request)
+    ui.session_state["history_offset"] = offset
+    ui.button.side_effect = [False, previous, not previous]
+    ui.rerun.side_effect = RerunRequested
+
+    with pytest.raises(RerunRequested):
+        sidebar.show_sidebar()
+
+    assert len(ui.selectbox.call_args.kwargs["options"]) == 25
+    assert ui.session_state["history_offset"] == expected_offset
+    request.assert_called_once_with(
+        "GET", "/reports", params={"grade": "8", "limit": 26, "offset": offset}
+    )
+
+
+def test_empty_last_history_page_returns_to_previous_page(ui, monkeypatch):
+    """Deleting the last item on a page must not strand the user on an empty page."""
+    monkeypatch.setattr(sidebar, "show_service_status", Mock(return_value=True))
+    monkeypatch.setattr(sidebar, "report_filters", Mock(return_value={}))
+    monkeypatch.setattr(sidebar, "request_api", Mock(return_value=[]))
+    ui.session_state["history_offset"] = 25
+    ui.rerun.side_effect = RerunRequested
+
+    with pytest.raises(RerunRequested):
+        sidebar.show_sidebar()
+
+    assert ui.session_state["history_offset"] == 0

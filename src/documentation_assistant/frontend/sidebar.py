@@ -14,6 +14,7 @@ FILTER_FIELDS = {
 }
 FILTER_FIELDS["approved_by"] = "Approver"
 STATUS_LABELS = {"": "All statuses", "draft": "Draft", "approved": "Approved"}
+_HISTORY_PAGE_SIZE = 25
 
 
 def clear_report_filters():
@@ -21,6 +22,7 @@ def clear_report_filters():
     for field in (*FILTER_FIELDS, "status", "date_from", "date_to"):
         st.session_state.pop(f"filter_{field}", None)
     st.session_state.pop("active_report_filters", None)
+    st.session_state.pop("history_offset", None)
 
 
 def report_filters():
@@ -50,6 +52,7 @@ def report_filters():
                 st.session_state["active_report_filters"] = {
                     field: value for field, value in filters.items() if value
                 }
+                st.session_state.pop("history_offset", None)
     return st.session_state.get("active_report_filters", {})
 
 
@@ -142,9 +145,22 @@ def show_sidebar():
             # The status panel already reports the connection problem.
             return
 
-        reports = request_api("GET", "/reports", params=filters)
+        offset = st.session_state.get("history_offset", 0)
+        # Fetch one extra summary to detect a next page without a COUNT query.
+        reports = request_api(
+            "GET",
+            "/reports",
+            params={**filters, "limit": _HISTORY_PAGE_SIZE + 1, "offset": offset},
+        )
+        if reports == [] and offset:
+            # A deletion can empty the last page; return to the preceding page.
+            st.session_state["history_offset"] = max(0, offset - _HISTORY_PAGE_SIZE)
+            st.rerun()
         if reports:
-            labels = {item["report_id"]: report_label(item) for item in reports}
+            labels = {
+                item["report_id"]: report_label(item)
+                for item in reports[:_HISTORY_PAGE_SIZE]
+            }
             with st.form("open_report"):
                 selected_id = st.selectbox(
                     "Report", options=list(labels), format_func=labels.__getitem__
@@ -154,5 +170,18 @@ def show_sidebar():
                 )
             if open_selected:
                 open_report(selected_id)
+            st.caption(f"Page {offset // _HISTORY_PAGE_SIZE + 1}")
+            with st.container(horizontal=True, gap="small"):
+                previous = st.button("Previous", disabled=offset == 0)
+                next_page = st.button(
+                    "Next", disabled=len(reports) <= _HISTORY_PAGE_SIZE
+                )
+            if previous or next_page:
+                st.session_state["history_offset"] = (
+                    max(0, offset - _HISTORY_PAGE_SIZE)
+                    if previous
+                    else offset + _HISTORY_PAGE_SIZE
+                )
+                st.rerun()
         elif reports == []:
             st.caption("No matching reports." if filters else "No saved reports yet.")
