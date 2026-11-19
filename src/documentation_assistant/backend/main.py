@@ -1,19 +1,28 @@
 """Build the FastAPI application and expose the Uvicorn entry point."""
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 
 from documentation_assistant.backend.api.health import router as health_router
 from documentation_assistant.backend.api.reports import router as reports_router
+from documentation_assistant.backend.db.connection import initialize_database
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Initialize SQLite once at startup, including missing-column upgrades."""
+    initialize_database(application.state.database_path)
+    yield
 
 
 def create_app() -> FastAPI:
     """Create a FastAPI instance with health and report routes.
 
     Read DAP_DB_PATH during app creation so callers can configure the database
-    location. SQLite opens the database when a report operation needs it.
+    location. The lifespan initializes SQLite before requests are accepted.
     """
     application = FastAPI(
         title="Social Worker Documentation Assistant API",
@@ -22,6 +31,7 @@ def create_app() -> FastAPI:
             "for school social work."
         ),
         version="1.0.0",
+        lifespan=lifespan,
     )
     # Resolve relative database paths against the process working directory.
     application.state.database_path = Path(

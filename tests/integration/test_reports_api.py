@@ -26,6 +26,38 @@ def app(monkeypatch, tmp_path):
     return create_app()
 
 
+def test_database_schema_is_initialized_at_startup_only(app, monkeypatch):
+    """Repeated report requests must not repeat table creation or schema inspection."""
+    statements = []
+    sqlite_connect = sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        connection = sqlite_connect(*args, **kwargs)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", traced_connect)
+    assert not app.state.database_path.exists()
+
+    with TestClient(app) as client:
+        assert app.state.database_path.exists()
+        assert any("CREATE TABLE" in sql for sql in statements)
+        assert any("pragma_table_info" in sql for sql in statements)
+        statements.clear()
+
+        for _ in range(2):
+            assert client.get("/reports").json() == []
+        response = client.post("/reports/manual", json={"notes": NOTES})
+        assert response.status_code == 201
+        assert client.get(f"/reports/{response.json()['report_id']}").status_code == 200
+
+    assert statements
+    assert not any(
+        "CREATE TABLE" in sql or "pragma_table_info" in sql or "ALTER TABLE" in sql
+        for sql in statements
+    )
+
+
 @pytest.fixture
 def mock_ollama(monkeypatch):
     """Provide a way to replace the Ollama client's HTTP transport."""
@@ -953,7 +985,8 @@ def test_invalid_ollama_reply_is_not_saved(app, mock_ollama):
         response = client.post("/reports/generate", json={"notes": NOTES})
     assert response.status_code == 502
     assert "Ollama" in response.json()["detail"]
-    assert not app.state.database_path.exists()
+    with TestClient(app) as client:
+        assert client.get("/reports").json() == []
 
 
 @pytest.mark.parametrize("operation", ["edit", "delete"])
