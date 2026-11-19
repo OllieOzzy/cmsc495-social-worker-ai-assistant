@@ -26,8 +26,8 @@ def request_api(method, path, *, payload=None, params=None, timeout=10, raw=Fals
     """Send a FastAPI request and show an error in Streamlit if it fails.
 
     Return decoded JSON by default, the HTTP response when raw is True, or
-    True for a 204 response in JSON mode. Return None for handled HTTP and
-    connection errors.
+    True for a 204 response in JSON mode. Return None for HTTP errors,
+    connection errors, or invalid JSON responses.
     """
     try:
         response = httpx.request(
@@ -35,13 +35,19 @@ def request_api(method, path, *, payload=None, params=None, timeout=10, raw=Fals
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        message = (
+            f"The server could not complete the request ({exc.response.status_code})."
+        )
         # These responses explain a report conflict or a generation failure.
         if exc.response.status_code in (409, 502, 503, 504):
-            st.error(exc.response.json()["detail"])
-        else:
-            st.error(
-                f"The server could not complete the request ({exc.response.status_code})."
-            )
+            try:
+                body = exc.response.json()
+            except ValueError:
+                body = None
+            detail = body.get("detail") if isinstance(body, dict) else None
+            if isinstance(detail, str) and detail.strip():
+                message = detail
+        st.error(message)
         return None
     except httpx.RequestError:
         st.error("Could not reach the report server. Check that FastAPI is running.")
@@ -50,4 +56,8 @@ def request_api(method, path, *, payload=None, params=None, timeout=10, raw=Fals
         return response
     if response.status_code == 204:
         return True
-    return response.json()
+    try:
+        return response.json()
+    except ValueError:
+        st.error("The report server returned an invalid JSON response. Try again.")
+        return None
