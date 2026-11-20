@@ -26,10 +26,11 @@ The backend validates that the model returns a JSON object with three nonblank t
 ### Review Limitations
 
 A structurally valid draft can still put supported information in the wrong
-section. During release review with the default `qwen3:8b` model, a draft kept
-the student's reported improvement in Data but returned `Not documented.` for
-Assessment despite the documented response to an intervention. Review section
-placement as well as whether the information appears anywhere in the draft.
+section. The Assessment instructions explicitly require a student's documented
+response after an intervention, even if that response also appears in Data.
+Live regression cases check a reported improvement, a response with no reported
+improvement, and an intervention with no recorded response. Review section
+placement and attribution as well as whether information appears in the draft.
 
 The live quality tests check selected keywords, forbidden phrases, and missing
 sections. Passing those assertions does not verify every item in their printed

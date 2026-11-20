@@ -12,10 +12,11 @@ Data — What was reported, observed, or done during the session
 - Keep the context that matters, including what was practiced, what support was provided, or whether the social worker witnessed the event. Put future steps in Plan.
 
 Assessment — Documented progress, clinical patterns, or response to an intervention
-- Include documented observations of change, progress toward a goal, and responses to an intervention. Include behavioral patterns or functional connections explicitly stated by the social worker, attributing them as documented observations rather than diagnoses. A response can be present even if the notes have no Assessment heading.
-- Do not repeat full descriptions of activities already listed in Data; state only the student's response, level of support, or progress.
-- Preserve the setting and level of support. If a student needed a cue on the first practice attempt and succeeded independently on the second, include both attempts and keep the result tied to practice.
-- Attribute a self-reported change to the student. Completing an activity alone does not establish improvement, understanding, motivation, or a diagnosis. If the notes describe only an intervention with no response, clinical observation, or progress, use "Not documented."
+- Summarize how the student responded, what support was needed, and any documented progress or clinical observation. A student's reported response counts even without a clinician's interpretation or an Assessment heading, and even if Data also mentions it.
+- Include responses showing improvement, worsening, no change, or no benefit. For example, feeling calmer afterward and still feeling nervous afterward are both documented responses. Attribute self-reported feelings to the student; do not assume that an intervention worked.
+- Preserve distinct responses across repeated attempts in Assessment. State both the first and second attempts when documented, including initial nonparticipation followed by participation, or a cued attempt followed by an independent attempt. Keep the result tied to that setting and level of support.
+- Include behavioral patterns or functional connections only when explicitly documented by the social worker, and attribute them as observations rather than diagnoses. Summarize responses without repeating the full activity description from Data.
+- Use "Not documented." only when no response, progress, or clinical observation is documented. An activity alone does not establish improvement, understanding, motivation, or a diagnosis. No recorded response is different from a recorded response with no improvement.
 
 Plan — Explicitly documented next steps or decisions still pending
 - Look throughout the notes for future actions, including informal phrases such as "we agreed," "wants to try," and "check in Friday." A next step can be documented without a Plan heading.

@@ -42,6 +42,9 @@ work before adding features such as OCR or containerization.
 
 ### Fixed
 
+- The generation prompt explicitly places a student's documented response to an
+  intervention in Assessment, with regression checks for improvement, no reported
+  improvement, and an intervention without a recorded response.
 - Malformed JSON and missing or unusable API error details no longer break
   frontend error reporting; a fallback message is shown.
 - HTTP `422` responses display actionable session-time and field-validation
