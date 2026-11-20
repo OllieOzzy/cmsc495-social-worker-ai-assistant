@@ -41,17 +41,31 @@ python3.12 -m venv .venv
 
 Open `http://127.0.0.1:8501` in your browser. Choose **Written by hand** to get
 started. For **AI-assisted draft**, start Ollama and install the default model
-with `ollama pull qwen3:8b`. Follow the [local Ollama setup guide](docs/local-llm-setup.md)
+with `ollama pull qwen3:8b`. Follow the [local Ollama setup guide](docs/LOCAL-OLLAMA-SETUP.md)
 for platform-specific instructions.
 
 The app saves reports in `data/dap.db` under the folder where you launched it.
 Press **Ctrl+C** in the launch terminal to stop the app.
+
+### Upgrade from 1.0.0
+
+Stop the app before upgrading. Keep a backup of `data/dap.db` while the app
+is stopped, or back up the file selected by `DAP_DB_PATH` if you configured
+another location. Install the new wheel using the same environment's Python
+and the installation command above, then launch the app from the same working
+folder so it finds the existing database. Startup adds any missing schema
+columns without deleting saved reports.
+
+The wheel includes the frontend, backend, PDF template, and generation prompt.
+Ollama and its model are installed separately and are only needed for AI-assisted
+drafting. See the [Ollama guide](docs/LOCAL-OLLAMA-SETUP.md) to choose another model.
 
 ## 🗂️ Repository Structure
 
 ```text
 📁 cmsc495-social-worker-ai-assistant/
 ├── 📄 README.md
+├── 📄 CHANGELOG.md
 ├── ⚙️ pyproject.toml
 ├── 📄 requirements.txt
 ├── ⚙️ .gitattributes
@@ -64,7 +78,7 @@ Press **Ctrl+C** in the launch terminal to stop the app.
 │       ├── ⚙️ ci.yml
 │       └── ⚙️ live-ollama.yml
 ├── 📁 docs/
-│   ├── 📄 local-llm-setup.md
+│   ├── 📄 LOCAL-OLLAMA-SETUP.md
 │   └── 📁 templates/
 │       └── 📋 School_Social_Work_DAP_Session_Note.pdf
 ├── 📁 scripts/
@@ -72,6 +86,7 @@ Press **Ctrl+C** in the launch terminal to stop the app.
 ├── 📁 src/
 │   └── 📁 documentation_assistant/
 │       ├── 🐍 __init__.py
+│       ├── 🐍 launcher.py
 │       ├── 📁 backend/
 │       │   ├── 📄 README.md
 │       │   ├── 🐍 __init__.py
@@ -108,15 +123,24 @@ Press **Ctrl+C** in the launch terminal to stop the app.
 │           └── 🐍 sidebar.py
 └── 📁 tests/
     ├── 📁 integration/
+    │   ├── 🧪 test_frontend_recovery.py
+    │   ├── 🧪 test_frontend_reports.py
     │   ├── 🧪 test_health_api.py
     │   ├── 🧪 test_report_pdf.py
     │   └── 🧪 test_reports_api.py
     ├── 📁 llm/
     │   ├── 🧪 test_dap_quality.py
     │   └── 🧪 test_live_ollama.py
+    ├── 📁 packaging/
+    │   └── 🐍 check_installed_wheel.py
     └── 📁 unit/
         ├── 🧪 test_db_connection.py
         ├── 🧪 test_drafts.py
+        ├── 🧪 test_frontend_api_client.py
+        ├── 🧪 test_frontend_app.py
+        ├── 🧪 test_frontend_forms.py
+        ├── 🧪 test_frontend_reports.py
+        ├── 🧪 test_frontend_sidebar.py
         ├── 🧪 test_health_handler.py
         ├── 🧪 test_ollama.py
         ├── 🧪 test_pdf_renderer.py
@@ -124,8 +148,10 @@ Press **Ctrl+C** in the launch terminal to stop the app.
         └── 🧪 test_report_schemas.py
 ```
 
-The backend creates the local SQLite file at `data/dap.db` on first use when
-started from the repository root. Git ignores the `data/` folder.
+The backend creates or upgrades the local SQLite database during startup.
+Its default path is `data/dap.db` relative to the folder where the backend or
+launcher runs. Set `DAP_DB_PATH` to choose another file. Git ignores the
+repository's `data/` folder.
 
 ## Architecture
 
@@ -173,7 +199,7 @@ flowchart TD
     Start --> Unit["Unit tests"]
     Start --> Integration["Integration tests"]
 
-    Unit --> Coverage["Coverage report · 90% minimum"]
+    Unit --> Coverage["Backend coverage report · 90% minimum"]
     Integration --> Coverage
     Checks --> Eligible{"Push to main or manual run on main?"}
     Coverage --> Eligible
@@ -215,8 +241,8 @@ manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 | Python Formatting | Ruff checks Python formatting. |
 | Python Security | Bandit scans the backend Python code. |
 | Dependency Security | pip-audit checks the dependencies in `requirements.txt` for known vulnerabilities. |
-| Unit Tests | Pytest checks individual pieces, including report validation and Ollama response parsing. |
-| Integration Tests | Pytest checks workflows such as saving reports in SQLite and downloading PDFs through FastAPI. |
+| Unit Tests | Pytest checks backend validation, Ollama response parsing, and frontend API handling, forms, routing, and actions. |
+| Integration Tests | Pytest checks FastAPI and SQLite workflows, Streamlit report actions, recovery, proxy handling, pagination, and PDF downloads. |
 | Coverage Report | Combines unit and integration coverage, publishes the report in the run summary, and fails below 90% backend coverage. |
 | Build Wheel | Builds one wheel after checks pass on pushes to `main` and manual runs on `main`. |
 | Validate Wheel | Installs the wheel on Ubuntu, Windows, and macOS with Python 3.12 and checks that the installed app can save a draft and export a PDF. |
@@ -233,6 +259,18 @@ results under **Actions → CI Pipeline**.
 To prepare a release, run **CI Pipeline** manually on `main`. After the wheel
 checks pass, download `dap-app-<version>` from **Artifacts** and extract the
 `.whl` for the GitHub Release.
+
+Before publishing `1.1.0`, verify the final commit on `main` with both workflows.
+Enable the optional DAP quality cases in **Live Ollama Test**. CI uses
+`qwen3:4b`, while the app defaults to `qwen3:8b`; also review representative
+drafts locally with the model you intend to demonstrate.
+
+Install the validated wheel in a separate environment and walk through
+creation, saving, reopening, editing, approval, and PDF export. Check backend
+and Ollama outage recovery, and verify that unsaved browser form edits survive
+status-panel checks and automatic refreshes. Tag the verified commit `1.1.0`
+and attach its validated wheel to the GitHub Release. The workflows upload
+artifacts; they do not create a release or publish to a package registry.
 
 ### Live Ollama CI Pipeline
 
@@ -333,6 +371,8 @@ Official repositories and documentation for the tools used in this project:
 
 ## Release 1.1.0
 
+See the [changelog](CHANGELOG.md) for the changes since `1.0.0` and upgrade notes.
+
 - **Automated frontend and expanded backend tests.** Cover form validation,
   report review, backend recovery, session times, and concurrent report changes.
 - **Service status caching.** Reuse status results for 60 seconds while keeping
@@ -343,11 +383,14 @@ Official repositories and documentation for the tools used in this project:
   controls. API consumers can use `limit` and `offset` query parameters.
 - **HTTP connection reuse.** Reuse the backend Ollama client and frontend
   clients within each browser session, with cleanup when they are released.
+- **Actionable validation errors.** Show session-time and field-validation
+  explanations while preserving pending edits after a rejected save.
+- **Local proxy bypass.** Connect directly to loopback backends while retaining
+  environment proxy support for remote backends.
 
 ## Future Improvements
 
 - **Document scanning with OCR.** Extract text from scanned documents and review
   it before using it as session notes in the app.
-- **Containerization planned for 1.2.0.** Use Docker Compose to run the
-  Streamlit frontend, FastAPI backend, and
-  Ollama as separate containers on one machine.
+- **Containerization with Docker Compose.** Run the Streamlit frontend,
+  FastAPI backend, and Ollama as separate containers on one machine.

@@ -194,7 +194,9 @@ The health endpoint returns:
 {"status": "ok"}
 ```
 
-This checks API liveness and works independently of Ollama.
+This checks API liveness and works independently of Ollama. Startup initializes
+SQLite before accepting requests; `/health` does not test model availability
+or perform a database read on each call.
 
 ## Start a Draft
 
@@ -209,7 +211,7 @@ draft source based on the endpoint used.
 
 Start Ollama and run `ollama pull qwen3:8b` if the model is missing. The backend
 uses Ollama on `127.0.0.1:11434`. To use a different installed model, set
-`OLLAMA_MODEL` before starting the backend. [Local Ollama setup guide](../../../docs/local-llm-setup.md)
+`OLLAMA_MODEL` before starting the backend. [Local Ollama setup guide](../../../docs/LOCAL-OLLAMA-SETUP.md)
 
 The backend creates one async HTTP client at startup for generation and
 regeneration. It reuses available connections and closes the client at shutdown.
@@ -360,7 +362,9 @@ python -m pytest tests/integration -k "not frontend" -v
 | Unit: API handlers and Ollama client | Health responses, AI response validation and failures, and HTTP error mapping when saving regenerated reports. |
 | Unit: PDF renderer | Field rendering, draft and approval markings, and continuation pages. |
 | Integration: report API | Creation, filtering, editing, approval, reopening, deletion, missing reports, and stale revisions using real SQLite storage. |
+| Integration: pagination and startup | Bounded filtered pages, pagination validation, and schema checks occurring only during startup. |
 | Integration: AI generation | Mocked generation and regeneration through FastAPI, including edits or deletion while generation is in progress. |
+| Integration: HTTP client lifecycle | Reuse across generation and regeneration, recovery after a connection failure, and cleanup at shutdown. |
 | Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
 | Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |
 

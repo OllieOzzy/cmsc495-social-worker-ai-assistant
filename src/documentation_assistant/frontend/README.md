@@ -156,7 +156,6 @@ Use the creation command that matches your setup:
 - If you still need Python 3.12, install the Python Install Manager, open a
   new PowerShell window, and run `py install 3.12`. Then run
   `py -3.12 -m venv .venv`. [Python Install Manager guide](https://docs.python.org/3/using/windows.html#python-install-manager)
-g
 Activate the environment with `.\.venv\Scripts\Activate.ps1`. If that
 script is missing or PowerShell blocks it, use `.\.venv\Scripts\python.exe`
 in place of `python` in the commands below.
@@ -208,13 +207,12 @@ and loopback IPs such as `127.0.0.1` and `::1` bypass environment proxy settings
 Remote backends, including container service names, honor the environment's
 proxy, `NO_PROXY`, and certificate settings. Local backend requests and Ollama
 status checks can share a client because both bypass environment settings.
-Streamlit closes the clients when it releases the
-session's cached resources. Report responses and PDF contents are not cached
-by these clients.
+Streamlit closes the clients when it releases the session's cached resources.
+Report responses and PDF contents are not cached by these clients.
 
 Start Ollama when you want to generate or regenerate an AI-assisted draft.
 You can create and review manual drafts with FastAPI running and Ollama
-stopped. [Local Ollama setup guide](../../../docs/local-llm-setup.md)
+stopped. [Local Ollama setup guide](../../../docs/LOCAL-OLLAMA-SETUP.md)
 
 ## Shut Down the Servers
 
@@ -245,6 +243,8 @@ to browse matching reports. Applying or clearing filters returns to page one.
 Streamlit checks FastAPI and Ollama when the report page opens and every
 60 seconds while the session is active. The timer refreshes only the status
 panel. Click **Backend Status** or **AI Status** to check immediately.
+Other full-page reruns reuse each service's result for up to 60 seconds;
+clicking a status button immediately rechecks that service.
 
 If FastAPI is down, **Backend Status** turns red and the connection error
 appears below the buttons. If report history couldn't load, start FastAPI
@@ -283,12 +283,17 @@ python -m pytest tests/integration -k frontend -v
 The integration tests use Streamlit's `AppTest` to enter values and click buttons.
 Report workflow tests connect to FastAPI's test client and a temporary SQLite
 database. Recovery tests simulate failed HTTP requests and backend reconnection.
-Ollama status responses are mocked, so both suites run without a model download.
+A proxy regression test starts a temporary loopback HTTP server, and client
+lifecycle tests check reuse, session isolation, and cleanup. Ollama status
+responses are mocked, so both suites run without a model download.
 
 | Workflow | What the integration tests verify |
 | --- | --- |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
 | Backend reconnection | A backend outage skips history loading, and a manual status check restores history after recovery. |
+| Validation errors | Invalid session times display the backend explanation, retain pending edits, and leave the saved report unchanged. |
+| Proxy handling and clients | Local requests work with a configured proxy; cached clients remain isolated by session and are closed on release. |
+| History pagination | Previous/Next navigation shows the correct page; applying or clearing filters returns to page one. |
 | Save and reopen | All three saved DAP sections persist after opening another report. |
 | Approval and reopening | Unsaved edits block approval, approved fields become read-only, and confirmed reopening restores editing. |
 | Concurrent edits | A stale save displays a conflict, preserves pending edits, and protects the newer saved revision. |
@@ -310,3 +315,4 @@ and PDF export on Windows, Ubuntu, and macOS.
 | Backend Status is red and a connection error appears below it | Start FastAPI, then click **Backend Status** to check again and load report history. |
 | AI Status reports Ollama is unreachable | Start Ollama and click **AI Status** to check again. If generation reports that the model is unavailable, check that FastAPI's configured model is installed. |
 | The app says the draft was saved but could not be opened | Click **Retry opening draft** in the same browser tab. The button uses the saved report ID. |
+| Saving displays a validation explanation | Correct the indicated values and retry. For session times, the end must be on or after the start on the same day. Rejected changes are not saved. |

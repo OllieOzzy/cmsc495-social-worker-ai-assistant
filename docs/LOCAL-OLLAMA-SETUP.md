@@ -14,6 +14,10 @@ Review generated drafts against the source notes.
 The initial reference setup uses Windows, an NVIDIA RTX 3090, and Qwen3 8B.
 Other hardware may require a smaller model.
 
+Ollama and its model are not included in the app wheel. The handwritten
+workflow works without them. For installing and launching the packaged app,
+use the [main quick start](../README.md#quick-start).
+
 ## 1. Install and Verify Ollama
 
 ### Windows (PowerShell)
@@ -252,6 +256,30 @@ To shut down the server, quit the desktop app on Windows or macOS, press
 The backend sends the [DAP prompt](../src/documentation_assistant/backend/llm/prompts/dap_generation.txt) with each
 request, sets an 8,192-token context, and validates the structured JSON
 response. An interactive `/set` command applies to the standalone chat.
+
+The app defaults to `qwen3:8b`, uses temperature `0`, limits generated output
+to 1,200 tokens, and uses a 240-second HTTP request timeout. A timeout is an
+error limit, not an expected generation time. The frontend allows an additional
+15 seconds for the backend response.
+
+To use another compatible installed model, set `OLLAMA_MODEL` in the terminal
+that starts the backend or `dap-assistant`. Use its exact tag from `ollama list`:
+
+```powershell
+# Windows PowerShell, before launching the app
+$env:OLLAMA_MODEL = "your-installed-model-tag"
+```
+
+```bash
+# macOS or Linux, before launching the app
+export OLLAMA_MODEL="your-installed-model-tag"
+```
+
+Then start the app using the quick-start commands, or start FastAPI using
+the backend guide. No wheel rebuild is needed. Changing the model still
+requires checking its structured output and reviewing draft quality. The
+GitHub live workflow uses `qwen3:4b` for its runner tests; that does not change
+the app's local default.
 
 To try the app's generation workflow, start FastAPI and send synthetic
 notes to `POST /reports/generate` through Swagger. To run automated live
