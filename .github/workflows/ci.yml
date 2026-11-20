@@ -222,12 +222,13 @@ jobs:
           python -m coverage report --show-missing --precision=2 --fail-under=90 \
             --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
-  # Build on main so branch and PR checks skip the wheel jobs.
+  # Validate release candidates before merging; ordinary branch pushes skip wheel jobs.
   build-wheel:
     name: Build Wheel
     if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.ref == 'refs/heads/main' &&
+       (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))
     needs:
       - workflow-lint
       - workflow-formatting
@@ -305,6 +306,9 @@ jobs:
   # Upload the release artifact after the main-branch wheel validations pass.
   upload-wheel:
     name: Upload Validated Wheel
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [build-wheel, validate-wheel]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

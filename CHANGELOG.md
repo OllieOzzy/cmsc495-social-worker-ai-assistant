@@ -34,9 +34,10 @@ work before adding features such as OCR or containerization.
   shutdown. The 240-second timeout and proxy bypass remain unchanged.
 - Frontend HTTP clients are reused within each browser session and proxy policy,
   then closed when Streamlit releases their cached resources.
-- Wheel building, cross-platform validation, and artifact upload run only on
-  pushes to `main` or manual workflow runs on `main`. Branch and PR runs retain
-  the regular checks and tests.
+- Wheel building and cross-platform validation run on PRs targeting `main`,
+  pushes to `main`, and manual runs on `main`. Other branch runs retain the
+  regular checks and tests. The final versioned artifact upload remains limited
+  to pushes and manual runs on `main`.
 - Setup, testing, release, and troubleshooting guides reflect the packaged app
   and the updated frontend and backend behavior.
 

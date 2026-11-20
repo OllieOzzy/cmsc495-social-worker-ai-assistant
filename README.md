@@ -201,7 +201,7 @@ flowchart TD
 
     Unit --> Coverage["Backend coverage report · 90% minimum"]
     Integration --> Coverage
-    Checks --> Eligible{"Push to main or manual run on main?"}
+    Checks --> Eligible{"PR to main, push to main,<br/>or manual run on main?"}
     Coverage --> Eligible
     Eligible -->|"Yes, after all checks pass"| Build["Build one wheel"]
     Eligible -->|"Other CI runs"| Skip["Skip wheel jobs"]
@@ -210,9 +210,12 @@ flowchart TD
     Build --> Linux["Validate on Ubuntu"]
     Build --> Mac["Validate on macOS"]
 
-    Windows --> Upload["Upload dap-app-1.1.0.zip after all three pass"]
-    Linux --> Upload
-    Mac --> Upload
+    Windows --> Validated["All three wheel validations pass"]
+    Linux --> Validated
+    Mac --> Validated
+    Validated --> ReleaseEligible{"Push or manual run<br/>on main?"}
+    ReleaseEligible -->|"Yes"| Upload["Upload dap-app-1.1.0.zip"]
+    ReleaseEligible -->|"Pull request"| Ready["PR wheel validation complete"]
 
     classDef trigger fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:2px
     classDef checks fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A,stroke-width:2px
@@ -221,11 +224,11 @@ flowchart TD
     classDef decision fill:#FEF3C7,stroke:#B45309,color:#78350F,stroke-width:2px
     classDef artifact fill:#DCFCE7,stroke:#15803D,color:#14532D,stroke-width:2px
 
-    class Start,Skip trigger
+    class Start,Skip,Ready trigger
     class Checks,Unit,Integration,Coverage checks
     class Build build
-    class Windows,Linux,Mac validation
-    class Eligible decision
+    class Windows,Linux,Mac,Validated validation
+    class Eligible,ReleaseEligible decision
     class Upload artifact
 ```
 
@@ -244,15 +247,18 @@ manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 | Unit Tests | Pytest checks backend validation, Ollama response parsing, and frontend API handling, forms, routing, and actions. |
 | Integration Tests | Pytest checks FastAPI and SQLite workflows, Streamlit report actions, recovery, proxy handling, pagination, and PDF downloads. |
 | Coverage Report | Combines unit and integration coverage, publishes the report in the run summary, and fails below 90% backend coverage. |
-| Build Wheel | Builds one wheel after checks pass on pushes to `main` and manual runs on `main`. |
+| Build Wheel | Builds one wheel after checks pass on PRs targeting `main`, pushes to `main`, and manual runs on `main`. |
 | Validate Wheel | Installs the wheel on Ubuntu, Windows, and macOS with Python 3.12 and checks that the installed app can save a draft and export a PDF. |
-| Upload Validated Wheel | Adds the versioned ZIP after all three wheel validation jobs pass. |
+| Upload Validated Wheel | Adds the versioned ZIP after all three validations pass, only on pushes or manual runs on `main`. |
 
 Linting, formatting, security checks, unit tests, and integration tests run in
 parallel. Coverage waits for both test jobs. The wheel build waits for coverage
-and all other checks to pass. Wheel building, validation, and the final upload run
-on pushes to `main`, including PR merges, and manual runs on `main`. Branch and
-pull request runs skip those wheel jobs. The regular pipeline uses synthetic data and mocks
+and all other checks to pass. Wheel building and validation run on pull requests
+targeting `main`, pushes to `main` (including PR merges), and manual runs on
+`main`. Ordinary branch pushes and PRs targeting other branches skip those jobs.
+The final versioned artifact upload runs only on pushes and manual runs on
+`main`; PR runs upload a candidate wheel only for cross-platform validation.
+The regular pipeline uses synthetic data and mocks
 Ollama responses where needed, so it runs without Ollama or a GPU. View the
 results under **Actions → CI Pipeline**.
 
