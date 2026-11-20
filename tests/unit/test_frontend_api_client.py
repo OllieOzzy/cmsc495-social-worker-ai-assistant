@@ -230,6 +230,36 @@ def test_request_forwards_payload_filters_and_timeout(api_mocks, monkeypatch):
     error.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("url", "trust_env"),
+    [
+        ("http://127.0.0.1:8000", False),
+        ("http://127.0.0.2:8000/api", False),
+        ("http://localhost:8000", False),
+        ("http://LOCALHOST.:8000", False),
+        ("http://[::1]:8000", False),
+        ("https://reports.example.test", True),
+        ("http://192.168.1.10:8000", True),
+        ("http://backend:8000", True),
+        ("http://localhost.example.test:8000", True),
+        ("http://127.0.0.1@reports.example.test:8000", True),
+    ],
+)
+def test_backend_proxy_policy_uses_the_actual_destination(
+    api_mocks, monkeypatch, url, trust_env
+):
+    """Bypass proxies for loopback only, preserving remote and container configuration."""
+    request, error = api_mocks
+    monkeypatch.setattr(api_client, "API_URL", url)
+    request.return_value = httpx.Response(
+        200, json={"status": "ok"}, request=httpx.Request("GET", f"{url}/health")
+    )
+
+    assert api_client.request_api("GET", "/health") == {"status": "ok"}
+    api_client._get_http_client.assert_called_once_with(trust_env=trust_env)
+    error.assert_not_called()
+
+
 @pytest.mark.parametrize("status", [400, 404, 422, 500])
 def test_other_http_errors_show_status_message(api_mocks, status):
     """Explain unsuccessful requests even when the response is an HTML page."""
