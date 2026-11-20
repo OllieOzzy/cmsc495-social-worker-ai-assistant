@@ -1,4 +1,9 @@
-"""Check live DAP drafts against synthetic notes and show them for review."""
+"""Check live DAP drafts against synthetic notes and show them for review.
+
+These opt-in tests need a running Ollama server and its configured model.
+Keyword and placeholder checks catch selected regressions; the printed review
+checklist still requires a person to assess meaning and unsupported claims.
+"""
 
 import os
 import re
@@ -23,11 +28,31 @@ pytestmark = pytest.mark.skipif(
             "feeling calmer afterward.",
             "Data records the exercise. Assessment attributes feeling calmer to "
             "the student's report. Plan is Not documented.",
-            {"data": "breathing"},
+            {"data": "breathing", "assessment": "calmer"},
             (),
             ("plan",),
             id="no-follow-up",
-        ),  # A completed exercise should leave Plan as Not documented.
+        ),  # The response belongs in Assessment even when there is no Plan.
+        pytest.param(
+            "The social worker practiced a grounding exercise with the student. "
+            "The student said they still felt nervous afterward.",
+            "Assessment preserves the student's reported nervousness after the "
+            "exercise without claiming improvement. Plan is Not documented.",
+            {"data": "grounding", "assessment": "nervous"},
+            ("calmer",),
+            ("plan",),
+            id="no-reported-improvement",
+        ),  # A documented response can describe no improvement.
+        pytest.param(
+            "The social worker practiced paced breathing with the student. "
+            "No student response was recorded.",
+            "Data records the exercise. Assessment and Plan are Not documented; "
+            "the exercise alone does not establish a response or progress.",
+            {"data": "breathing"},
+            (),
+            ("assessment", "plan"),
+            id="intervention-without-response",
+        ),  # The Assessment rule must not turn an activity into an assumed outcome.
         pytest.param(
             "The student practiced asking the teacher for help. The student needed "
             "a cue on the first try and made the request independently on the "
@@ -49,7 +74,7 @@ pytestmark = pytest.mark.skipif(
             "Use 'the student' and correct the grammar and spelling. Preserve the "
             "hallway report, the two breathing attempts, and how the student "
             "responded. Plan is Not documented.",
-            {"data": "breathing"},
+            {"data": "breathing", "assessment": "first"},
             ("alex", "furnitures"),
             ("plan",),
             id="messy-notes",

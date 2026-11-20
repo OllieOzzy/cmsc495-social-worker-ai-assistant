@@ -1,4 +1,8 @@
-"""Test Ollama reply parsing without a running model server."""
+"""Test Ollama reply parsing with a mock application-owned async client.
+
+Real HTTPX responses exercise status handling and JSON decoding without a
+model server. Integration tests cover pooled-client startup and shutdown.
+"""
 
 import asyncio
 import json
@@ -17,17 +21,18 @@ SECTIONS = {"data": NOTES, "assessment": "Not documented.", "plan": "Not documen
 
 
 @pytest.fixture
-def ollama_post(monkeypatch):
+def ollama_post():
     """Provide a mock POST method for the async HTTP client."""
-    client = MagicMock()
-    post = AsyncMock()
-    # The client is entered with async with before calling post().
-    client.__aenter__.return_value.post = post
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
-    return post
+    return AsyncMock()
 
 
-def test_generate_dap_parses_completed_reply(ollama_post):
+@pytest.fixture
+def ollama_client(ollama_post):
+    """Provide the application-owned client used by generation."""
+    return MagicMock(post=ollama_post)
+
+
+def test_generate_dap_parses_completed_reply(ollama_post, ollama_client):
     """Verify a completed reply becomes validated DAP sections."""
     notes = f"{NOTES} We agreed to meet Friday after lunch."
     expected_sections = {
@@ -40,9 +45,10 @@ def test_generate_dap_parses_completed_reply(ollama_post):
         json={"done": True, "message": {"content": json.dumps(expected_sections)}},
     )
 
-    sections = asyncio.run(generate_dap(notes))
+    sections = asyncio.run(generate_dap(notes, ollama_client))
 
     assert sections.model_dump() == expected_sections
+    ollama_client.aclose.assert_not_called()
     ollama_post.assert_awaited_once()
     assert set(ollama_post.call_args.kwargs["json"]["format"]["properties"]) == set(
         expected_sections
@@ -70,7 +76,7 @@ def test_generate_dap_parses_completed_reply(ollama_post):
         "missing-content",
     ],
 )
-def test_generate_dap_rejects_unusable_replies(ollama_post, reply):
+def test_generate_dap_rejects_unusable_replies(ollama_post, ollama_client, reply):
     """Verify incomplete or malformed replies raise InvalidModelResponse."""
     ollama_post.return_value = httpx.Response(
         200,
@@ -79,4 +85,4 @@ def test_generate_dap_rejects_unusable_replies(ollama_post, reply):
     )
 
     with pytest.raises(InvalidModelResponse):
-        asyncio.run(generate_dap(NOTES))
+        asyncio.run(generate_dap(NOTES, ollama_client))

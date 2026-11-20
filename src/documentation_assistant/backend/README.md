@@ -194,7 +194,9 @@ The health endpoint returns:
 {"status": "ok"}
 ```
 
-This checks API liveness and works independently of Ollama.
+This checks API liveness and works independently of Ollama. Startup initializes
+SQLite before accepting requests; `/health` does not test model availability
+or perform a database read on each call.
 
 ## Start a Draft
 
@@ -209,7 +211,13 @@ draft source based on the endpoint used.
 
 Start Ollama and run `ollama pull qwen3:8b` if the model is missing. The backend
 uses Ollama on `127.0.0.1:11434`. To use a different installed model, set
-`OLLAMA_MODEL` before starting the backend. [Local Ollama setup guide](../../../docs/local-llm-setup.md)
+`OLLAMA_MODEL` before starting the backend. [Local Ollama setup guide](../../../docs/LOCAL-OLLAMA-SETUP.md)
+
+The backend creates one async HTTP client at startup for generation and
+regeneration. It reuses available connections and closes the client at shutdown.
+Creating the client does not contact Ollama, so manual workflows still work
+with Ollama stopped. The client keeps the 240-second request timeout and
+bypasses environment proxy settings for local Ollama requests.
 
 - PowerShell: `$env:OLLAMA_MODEL = "your-model-tag"`
 - bash or zsh: `export OLLAMA_MODEL="your-model-tag"`
@@ -235,13 +243,18 @@ a section. Review the draft against the original notes for accuracy and
 completeness before approving it. Restart FastAPI after editing the prompt so
 it loads the new instructions. [DAP prompt guide](llm/prompts/README.md)
 
-SQLite creates `data/dap.db` on first use of draft storage when the
-backend starts from the repository root. To use another location, set
-`DAP_DB_PATH` before starting the backend.
+SQLite creates `data/dap.db` during backend startup when launched from the
+repository root. Startup also adds missing columns to older databases;
+ordinary report requests do not repeat schema checks. To use another location,
+set `DAP_DB_PATH` before starting the backend.
 
 Use `GET /reports` to find a saved draft without already knowing its ID. Each
 summary contains `report_id`, `status`, and a UTC `created_at` timestamp.
 Drafts saved before timestamps were introduced have `created_at: null`.
+The endpoint returns up to 25 reports by default, newest first. Use `limit`
+(1–100) and `offset` (zero or greater) to request another page, such as
+`GET /reports?limit=25&offset=25` for page two. Filters apply before pagination;
+the response remains a JSON array and returns `[]` beyond the matching results.
 When generating a draft, you can include a `metadata` object with
 `student_name`, `student_id`, `school`, `grade`, `date_of_service`, and
 `social_worker_name`.
@@ -333,7 +346,32 @@ A missing report returns `404`. Downloading works with Ollama stopped.
 
 ## Tests
 
-Run the unit and integration tests from the repository root:
+Run the backend unit and integration tests from the repository root. These
+tests use mocked Ollama responses and temporary databases, so they do not
+require a running FastAPI server or Ollama and do not change saved reports.
+
+```shell
+python -m pytest tests/unit -k "not frontend" -v
+python -m pytest tests/integration -k "not frontend" -v
+```
+
+| Test group | Coverage |
+| --- | --- |
+| Unit: schemas | Notes and DAP validation, local 24-hour session times, partial time updates, and duration calculations. |
+| Unit: storage and connections | Saving and mapping reports, missing records, connection setup, and transaction cleanup. |
+| Unit: API handlers and Ollama client | Health responses, AI response validation and failures, and HTTP error mapping when saving regenerated reports. |
+| Unit: PDF renderer | Field rendering, draft and approval markings, and continuation pages. |
+| Integration: report API | Creation, filtering, editing, approval, reopening, deletion, missing reports, and stale revisions using real SQLite storage. |
+| Integration: pagination and startup | Bounded filtered pages, pagination validation, and schema checks occurring only during startup. |
+| Integration: AI generation | Mocked generation and regeneration through FastAPI, including edits or deletion while generation is in progress. |
+| Integration: HTTP client lifecycle | Reuse across generation and regeneration, recovery after a connection failure, and cleanup at shutdown. |
+| Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
+| Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |
+
+The database unit tests cover the existing-column path; the compatibility
+integration test exercises the missing-column upgrade against real SQLite.
+
+To run the backend and frontend suites together:
 
 ```shell
 python -m pytest tests/unit tests/integration -v

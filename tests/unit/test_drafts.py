@@ -15,7 +15,10 @@ METADATA_FIELD_COUNT = len(ReportMetadata.model_fields)
 
 @pytest.fixture
 def mock_connect(monkeypatch):
-    """Replace the connection used by the draft functions."""
+    """Mock the connection context manager for SQL binding and row-mapping tests.
+
+    Integration tests cover the same operations against actual SQLite storage.
+    """
     connect = MagicMock()
     monkeypatch.setattr(drafts, "connect", connect)
     return connect

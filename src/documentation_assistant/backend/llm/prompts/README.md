@@ -6,6 +6,10 @@ A system prompt that turns unstructured school social work session notes into a 
 
 This prompt instructs an LLM to act as a strict clinical documentation formatter. Rather than inventing clinical interpretations or diagnoses, it extracts only explicitly documented facts, observations, and next steps from messy session notes and organizes them into a standardized JSON structure for clinician review.
 
+These are instructions to the model, not guarantees about every response.
+Backend validation checks the three-field structure and nonblank text; a
+reviewer must still check accuracy, attribution, and unsupported details.
+
 ## Key Features & Guardrails
 
 * **Name handling in generated drafts.** The prompt asks the model to omit personal names from the three generated sections and use roles such as "the student" or "the teacher." The app stores the original source notes as entered.
@@ -18,6 +22,19 @@ This prompt instructs an LLM to act as a strict clinical documentation formatter
 ## Output Schema
 
 The backend validates that the model returns a JSON object with three nonblank text fields. The prompt asks the model to use `"Not documented."` when the notes contain no supported information for a section. The social worker reviews the draft against the original notes for accuracy and completeness.
+
+### Review Limitations
+
+A structurally valid draft can still put supported information in the wrong
+section. The Assessment instructions explicitly require a student's documented
+response after an intervention, even if that response also appears in Data.
+Live regression cases check a reported improvement, a response with no reported
+improvement, and an intervention with no recorded response. Review section
+placement and attribution as well as whether information appears in the draft.
+
+The live quality tests check selected keywords, forbidden phrases, and missing
+sections. Passing those assertions does not verify every item in their printed
+review checklists or guarantee accurate attribution and section placement.
 
 ```json
 {

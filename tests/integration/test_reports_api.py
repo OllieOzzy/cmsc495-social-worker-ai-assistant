@@ -1,15 +1,24 @@
-"""Test report endpoints with temporary SQLite storage and mocked Ollama HTTP."""
+"""Test report endpoints with temporary SQLite storage and mocked Ollama HTTP.
 
+TestClient contexts run startup and shutdown, including schema initialization
+and HTTP client cleanup. Requests exercise the real routes and storage layer.
+"""
+
+import asyncio
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime
+from threading import Event
+from unittest.mock import Mock
 from uuid import uuid4
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 from documentation_assistant.backend.main import create_app
 from documentation_assistant.backend.schemas.reports import SavedReportMetadata
 
@@ -23,9 +32,46 @@ def app(monkeypatch, tmp_path):
     return create_app()
 
 
+def test_database_schema_is_initialized_at_startup_only(app, monkeypatch):
+    """Repeated report requests must not repeat table creation or schema inspection."""
+    statements = []
+    sqlite_connect = sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        """Record real SQLite statements to detect schema work during requests."""
+        connection = sqlite_connect(*args, **kwargs)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", traced_connect)
+    assert not app.state.database_path.exists()
+
+    with TestClient(app) as client:
+        assert app.state.database_path.exists()
+        assert any("CREATE TABLE" in sql for sql in statements)
+        assert any("pragma_table_info" in sql for sql in statements)
+        statements.clear()
+
+        for _ in range(2):
+            assert client.get("/reports").json() == []
+        response = client.post("/reports/manual", json={"notes": NOTES})
+        assert response.status_code == 201
+        assert client.get(f"/reports/{response.json()['report_id']}").status_code == 200
+
+    assert statements
+    assert not any(
+        "CREATE TABLE" in sql or "pragma_table_info" in sql or "ALTER TABLE" in sql
+        for sql in statements
+    )
+
+
 @pytest.fixture
 def mock_ollama(monkeypatch):
-    """Provide a way to replace the Ollama client's HTTP transport."""
+    """Return a transport configurator to call before entering TestClient.
+
+    Startup constructs the shared client, so configure its transport first.
+    HTTPX still handles request encoding, status errors, and client cleanup.
+    """
     original_client = httpx.AsyncClient
 
     # Keep the real client so requests and responses follow the usual HTTPX path.
@@ -39,6 +85,116 @@ def mock_ollama(monkeypatch):
         monkeypatch.setattr(httpx, "AsyncClient", make_client)
 
     return configure
+
+
+def test_history_pages_are_bounded_and_filters_apply_before_pagination(app):
+    """Traverse filtered pages without duplicates or missing matching reports."""
+    with TestClient(app) as client:
+        all_ids = []
+        matching_ids = []
+        for index in range(55):
+            response = client.post(
+                "/reports/manual",
+                json={"metadata": {"school": "Match" if index % 2 == 0 else "Other"}},
+            )
+            assert response.status_code == 201
+            report_id = response.json()["report_id"]
+            all_ids.append(report_id)
+            if index % 2 == 0:
+                matching_ids.append(report_id)
+
+        default_page = client.get("/reports").json()
+        assert [row["report_id"] for row in default_page] == all_ids[::-1][:25]
+        pages = [
+            client.get(
+                "/reports", params={"school": "Match", "limit": 11, "offset": offset}
+            )
+            .raise_for_status()
+            .json()
+            for offset in (0, 11, 22, 33)
+        ]
+        assert [len(page) for page in pages] == [11, 11, 6, 0]
+        assert [row["report_id"] for page in pages for row in page] == matching_ids[
+            ::-1
+        ]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 101},
+        {"offset": -1},
+        {"offset": 2**63},
+    ],
+)
+def test_history_rejects_invalid_pagination(app, params):
+    """Reject invalid bounds before SQLite executes a history query."""
+    with TestClient(app) as client:
+        assert client.get("/reports", params=params).status_code == 422
+
+
+def test_ollama_client_is_reused_after_failure_and_closed_on_shutdown(
+    app, mock_ollama, monkeypatch
+):
+    """One startup client serves generation and regeneration, including retries."""
+    calls = 0
+
+    def reply(request):
+        """Fail the first connection, then return valid sections for subsequent calls."""
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ConnectError("Ollama is offline.", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "done": True,
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "data": NOTES,
+                            "assessment": "Not documented.",
+                            "plan": "Not documented.",
+                        }
+                    )
+                },
+            },
+        )
+
+    mock_ollama(reply)
+    factory = Mock(wraps=httpx.AsyncClient)
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+
+    with TestClient(app) as client:
+        pooled_client = app.state.ollama_client
+        assert not pooled_client.is_closed
+        # Client creation itself makes no request, so manual use remains offline-capable.
+        assert calls == 0
+        assert (
+            client.post("/reports/generate", json={"notes": NOTES}).status_code == 503
+        )
+        generated = client.post("/reports/generate", json={"notes": NOTES})
+        assert generated.status_code == 200
+        report_id = generated.json()["report_id"]
+        regenerated = client.post(
+            f"/reports/{report_id}/regenerate", json={"revision": 1, "notes": NOTES}
+        )
+        assert regenerated.status_code == 200
+        assert app.state.ollama_client is pooled_client
+        assert not pooled_client.is_closed
+        factory.assert_called_once_with(
+            timeout=OLLAMA_REQUEST_TIMEOUT_SECONDS, trust_env=False
+        )
+
+    assert calls == 3
+    assert pooled_client.is_closed
+
+    # A later startup gets a new client rather than retaining a closed connection pool.
+    with TestClient(app):
+        assert app.state.ollama_client is not pooled_client
+        assert not app.state.ollama_client.is_closed
+    assert app.state.ollama_client.is_closed
 
 
 def test_generation_returns_an_unapproved_draft(app, mock_ollama):
@@ -166,6 +322,7 @@ def test_manual_draft_can_be_saved_and_completed_without_ollama(app, mock_ollama
     """Save a manual draft and approve it after all three sections are filled."""
 
     def unexpected_ollama_request(_):
+        """Fail immediately if the handwritten workflow attempts AI generation."""
         pytest.fail("The manual draft must bypass Ollama")
 
     mock_ollama(unexpected_ollama_request)
@@ -381,6 +538,7 @@ def test_review_saves_corrections_and_only_approves_the_current_revision(
     approver = {"approved_by": "Taylor Example"}
 
     def reply(request):
+        """Return fixed sections so revision and approval behavior stays deterministic."""
         return httpx.Response(
             200, json={"done": True, "message": {"content": json.dumps(generated)}}
         )
@@ -607,6 +765,7 @@ def test_corrected_notes_and_regeneration_keep_the_same_draft(app, mock_ollama):
     requests = []
 
     def reply(request):
+        """Capture corrected notes and simulate one failed generation before retry."""
         requests.append(json.loads(request.content)["messages"][1]["content"])
         if len(requests) == 1:
             raise httpx.ConnectError("Ollama is offline.", request=request)
@@ -690,6 +849,7 @@ def test_report_filters_match_saved_metadata(app, mock_ollama):
     sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
 
     def reply(request):
+        """Verify source notes and return fixed sections for metadata filtering."""
         assert json.loads(request.content)["messages"][1]["content"] == NOTES
         return httpx.Response(
             200, json={"done": True, "message": {"content": json.dumps(sections)}}
@@ -789,6 +949,7 @@ def test_session_and_reporting_fields_round_trip(app, mock_ollama):
     sections = dict.fromkeys(("data", "assessment", "plan"), "Not documented.")
 
     def reply(request):
+        """Verify source notes and isolate session-field persistence from AI wording."""
         assert json.loads(request.content)["messages"][1]["content"] == NOTES
         return httpx.Response(
             200, json={"done": True, "message": {"content": json.dumps(sections)}}
@@ -839,6 +1000,7 @@ def test_reversed_session_times_are_rejected_without_saving(app, mock_ollama):
     """Check new and partial edits, including AI requests before inference."""
 
     def unexpected_request(_request):
+        """Ensure invalid session times are rejected before spending time on inference."""
         pytest.fail("Reversed times should be rejected before calling Ollama.")
 
     mock_ollama(unexpected_request)
@@ -892,6 +1054,39 @@ def test_get_report_rejects_malformed_id(app):
     assert response.json()["detail"][0]["loc"] == ["path", "report_id"]
 
 
+@pytest.mark.parametrize(
+    ("method", "suffix", "payload"),
+    [
+        ("PATCH", "", {"revision": 1, "notes": "Synthetic correction."}),
+        ("POST", "/approve", {"revision": 1, "approved_by": "Taylor Example"}),
+    ],
+    ids=["edit", "approve"],
+)
+def test_missing_report_actions_return_404_without_changing_storage(
+    app, method, suffix, payload
+):
+    """A valid action on an unknown UUID must not create or modify a report."""
+    with TestClient(app) as client:
+        saved = (
+            client.post("/reports/manual", json={"notes": NOTES})
+            .raise_for_status()
+            .json()
+        )
+        history_before = client.get("/reports").raise_for_status().json()
+        missing_path = f"/reports/{uuid4()}"
+
+        response = client.request(method, f"{missing_path}{suffix}", json=payload)
+
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Report draft not found."}
+        assert client.get(missing_path).status_code == 404
+        assert client.get("/reports").raise_for_status().json() == history_before
+        assert (
+            client.get(f"/reports/{saved['report_id']}").raise_for_status().json()
+            == saved
+        )
+
+
 def test_blank_notes_never_reach_ollama(app, mock_ollama):
     """Verify request validation rejects blank notes before generation."""
 
@@ -917,4 +1112,99 @@ def test_invalid_ollama_reply_is_not_saved(app, mock_ollama):
         response = client.post("/reports/generate", json={"notes": NOTES})
     assert response.status_code == 502
     assert "Ollama" in response.json()["detail"]
-    assert not app.state.database_path.exists()
+    with TestClient(app) as client:
+        assert client.get("/reports").json() == []
+
+
+@pytest.mark.parametrize("operation", ["edit", "delete"])
+def test_regeneration_cannot_overwrite_a_concurrent_report_change(
+    app, mock_ollama, operation
+):
+    """Change storage while Ollama is working and reject its outdated result."""
+    generating = Event()
+    finish_generation = Event()
+    generated_sections = {
+        "data": "Generated text from the outdated source notes.",
+        "assessment": "Not documented.",
+        "plan": "Not documented.",
+    }
+
+    async def delayed_reply(request):
+        """Hold the AI reply until another request has modified the report."""
+        generating.set()
+        # Wait off the event loop so the competing API request can finish.
+        assert await asyncio.to_thread(finish_generation.wait, timeout=10), (
+            "The competing request did not finish."
+        )
+        return httpx.Response(
+            200,
+            json={"done": True, "message": {"content": json.dumps(generated_sections)}},
+        )
+
+    mock_ollama(delayed_reply)
+    with TestClient(app) as client:
+        initial = (
+            client.post(
+                "/reports/manual",
+                json={"notes": NOTES, "metadata": {"student_name": "Alex Example"}},
+            )
+            .raise_for_status()
+            .json()
+        )
+        path = f"/reports/{initial['report_id']}"
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            regeneration = executor.submit(
+                client.post,
+                f"{path}/regenerate",
+                json={
+                    "revision": initial["revision"],
+                    "notes": "Outdated revised notes.",
+                    "metadata": {"student_name": "Outdated name"},
+                },
+            )
+            try:
+                assert generating.wait(timeout=10), "Regeneration never reached Ollama."
+                if operation == "edit":
+                    latest = (
+                        client.patch(
+                            path,
+                            json={
+                                "revision": initial["revision"],
+                                "notes": "Newer notes saved by another user.",
+                                "sections": {
+                                    **initial["sections"],
+                                    "data": "Newer observation.",
+                                },
+                                "metadata": {"student_name": "Updated Example"},
+                            },
+                        )
+                        .raise_for_status()
+                        .json()
+                    )
+                else:
+                    deleted = client.delete(
+                        path, params={"revision": initial["revision"]}
+                    )
+                    assert deleted.status_code == 204
+            finally:
+                # Release the worker even when the competing request fails an assertion.
+                finish_generation.set()
+            response = regeneration.result(timeout=10)
+
+        if operation == "edit":
+            assert response.status_code == 409
+            assert (
+                response.json()["detail"]
+                == "Report changed. Reload the current revision."
+            )
+            assert client.get(path).raise_for_status().json() == latest
+            assert latest["revision"] == initial["revision"] + 1
+            assert latest["metadata"]["draft_source"] == "handwritten"
+            history = client.get("/reports").raise_for_status().json()
+            assert [report["report_id"] for report in history] == [initial["report_id"]]
+        else:
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Report draft not found."
+            assert client.get(path).status_code == 404
+            assert client.get("/reports").raise_for_status().json() == []
