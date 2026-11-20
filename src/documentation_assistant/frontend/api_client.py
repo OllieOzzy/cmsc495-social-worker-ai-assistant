@@ -34,6 +34,30 @@ def ollama_is_reachable():
     return isinstance(payload, dict) and isinstance(payload.get("models"), list)
 
 
+def _validation_message(detail: list) -> str | None:
+    """Format FastAPI field errors without displaying submitted input or context."""
+    messages = []
+    for error in detail:
+        if not isinstance(error, dict):
+            continue
+        message = error.get("msg")
+        if not isinstance(message, str) or not message.strip():
+            continue
+        message = message.strip()
+        location = error.get("loc")
+        if (
+            isinstance(location, list)
+            and location
+            and isinstance(location[-1], str)
+            and location[-1] not in ("body", "query", "path")
+        ):
+            field = location[-1].replace("_", " ").capitalize()
+            message = f"{field}: {message}"
+        if message not in messages:
+            messages.append(message)
+    return "\n\n".join(messages) or None
+
+
 def request_api(method, path, *, payload=None, params=None, timeout=10, raw=False):
     """Send a FastAPI request and show an error in Streamlit if it fails.
 
@@ -50,8 +74,8 @@ def request_api(method, path, *, payload=None, params=None, timeout=10, raw=Fals
         message = (
             f"The server could not complete the request ({exc.response.status_code})."
         )
-        # These responses explain a report conflict or a generation failure.
-        if exc.response.status_code in (409, 502, 503, 504):
+        # Preserve actionable validation, report conflict, and generation errors.
+        if exc.response.status_code in (409, 422, 502, 503, 504):
             try:
                 body = exc.response.json()
             except ValueError:
@@ -59,6 +83,8 @@ def request_api(method, path, *, payload=None, params=None, timeout=10, raw=Fals
             detail = body.get("detail") if isinstance(body, dict) else None
             if isinstance(detail, str) and detail.strip():
                 message = detail
+            elif exc.response.status_code == 422 and isinstance(detail, list):
+                message = _validation_message(detail) or message
         st.error(message)
         return None
     except httpx.RequestError:
