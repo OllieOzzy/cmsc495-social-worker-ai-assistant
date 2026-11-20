@@ -202,9 +202,13 @@ Open the **Local URL** printed by Streamlit, usually `http://localhost:8501`.
 The frontend uses `http://127.0.0.1:8000` for FastAPI by default. If FastAPI runs
 at a different address, set `DAP_API_URL` before launching Streamlit.
 
-HTTP clients are reused across reruns within each browser session. Backend
-requests and Ollama status checks use separate connection pools to preserve
-their proxy settings. Streamlit closes the clients when it releases the
+HTTP clients are reused across reruns within each browser session, with a
+separate client for each environment-proxy policy. Requests to `localhost`
+and loopback IPs such as `127.0.0.1` and `::1` bypass environment proxy settings.
+Remote backends, including container service names, honor the environment's
+proxy, `NO_PROXY`, and certificate settings. Local backend requests and Ollama
+status checks can share a client because both bypass environment settings.
+Streamlit closes the clients when it releases the
 session's cached resources. Report responses and PDF contents are not cached
 by these clients.
 

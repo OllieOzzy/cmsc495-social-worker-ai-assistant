@@ -1,6 +1,8 @@
 """Send report requests to FastAPI and check local Ollama reachability."""
 
 import os
+from ipaddress import ip_address
+from urllib.parse import urlsplit
 
 import httpx
 import streamlit as st
@@ -14,10 +16,21 @@ API_URL = os.getenv("DAP_API_URL", "http://127.0.0.1:8000").rstrip("/")
 def _get_http_client(trust_env: bool = True) -> httpx.Client:
     """Reuse a client within one browser session and close it on cache release.
 
-    The proxy-policy argument gives backend and Ollama requests separate
-    pools. Only clients are cached; each action still sends a fresh request.
+    Requests with the same proxy policy share a client within the session.
+    Only clients are cached; each action still sends a fresh request.
     """
     return httpx.Client(trust_env=trust_env)
+
+
+def _is_loopback_url(url: str) -> bool:
+    """Recognize localhost and literal loopback IPs without resolving remote names."""
+    hostname = urlsplit(url).hostname
+    if hostname and hostname.rstrip(".") == "localhost":
+        return True
+    try:
+        return ip_address(hostname).is_loopback
+    except ValueError:
+        return False
 
 
 def ollama_is_reachable():
@@ -66,7 +79,9 @@ def request_api(method, path, *, payload=None, params=None, timeout=10, raw=Fals
     connection errors, or invalid JSON responses.
     """
     try:
-        response = _get_http_client().request(
+        # Loopback traffic stays on this computer. Remote backends retain
+        # environment proxy and certificate settings, including NO_PROXY.
+        response = _get_http_client(trust_env=not _is_loopback_url(API_URL)).request(
             method, f"{API_URL}{path}", json=payload, params=params, timeout=timeout
         )
         response.raise_for_status()

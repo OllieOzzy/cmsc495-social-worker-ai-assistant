@@ -1,10 +1,13 @@
 """Exercise frontend recovery and HTTP client lifecycle through Streamlit widgets.
 
-HTTP replies are mocked; no backend process or local Ollama server is needed.
-The lifecycle case uses real HTTPX clients with an in-memory transport.
+Most HTTP replies are mocked; no FastAPI process or Ollama server is needed.
+The lifecycle cases use real HTTPX clients with an in-memory transport, and
+the proxy regression case starts a temporary loopback-only HTTP server.
 """
 
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from unittest.mock import Mock
 
 import httpx
@@ -50,10 +53,18 @@ def ollama_status(monkeypatch):
     return client
 
 
-def test_http_clients_are_reused_per_session_and_closed_on_release(monkeypatch):
+@pytest.mark.parametrize(
+    ("backend_url", "policies"),
+    [("http://127.0.0.1:8000", [False]), ("http://example.test:8000", [True, False])],
+)
+def test_http_clients_are_reused_per_session_and_closed_on_release(
+    monkeypatch, backend_url, policies
+):
     """Real cached clients survive reruns without sharing state between sessions."""
     original_client = httpx.Client
     clients = []
+    monkeypatch.setattr(api_client, "API_URL", backend_url)
+    pool_count = len(policies)
 
     def respond(request):
         """Return healthy backend and Ollama replies without opening sockets."""
@@ -88,32 +99,80 @@ if st.button("Release clients"):
     assert not first.exception, first.exception
     first.run()
     assert not first.exception, first.exception
-    assert len(clients) == 2
+    assert len(clients) == pool_count
     assert [kwargs for _, kwargs in clients] == [
-        {"trust_env": True},
-        {"trust_env": False},
+        {"trust_env": policy} for policy in policies
     ]
 
     second = AppTest.from_string(script)
     second.session_state["test_http_session_id"] = "http-second"
     second.run()
     assert not second.exception, second.exception
-    assert len(clients) == 4
+    assert len(clients) == 2 * pool_count
     assert all(not client.is_closed for client, _ in clients)
 
     first.button[0].click().run()
     assert not first.exception, first.exception
-    assert all(client.is_closed for client, _ in clients[:2])
-    assert all(not client.is_closed for client, _ in clients[2:])
+    assert all(client.is_closed for client, _ in clients[:pool_count])
+    assert all(not client.is_closed for client, _ in clients[pool_count:])
 
     first.run()
     assert not first.exception, first.exception
-    assert len(clients) == 6
-    assert all(not client.is_closed for client, _ in clients[4:])
+    assert len(clients) == 3 * pool_count
+    assert all(not client.is_closed for client, _ in clients[2 * pool_count :])
     # Explicit release also keeps the test's mocked clients from outliving its patch.
     first.button[0].click().run()
     second.button[0].click().run()
     assert all(client.is_closed for client, _ in clients)
+
+
+def test_local_backend_is_reachable_with_environment_proxy_configured(monkeypatch):
+    """Reach a real local server even with an unusable proxy and no NO_PROXY exception."""
+
+    class HealthHandler(BaseHTTPRequestHandler):
+        """Provide a minimal local health endpoint without launching FastAPI."""
+
+        def do_GET(self):
+            """Return a complete response so HTTPX does not wait for more data."""
+            content = b'{"status": "ok"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+
+        def log_message(self, *args):
+            """Keep expected local requests out of pytest output."""
+
+    for name in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ):
+        monkeypatch.setenv(name, "http://127.0.0.1:1")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), HealthHandler)
+    worker = Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    monkeypatch.setattr(api_client, "API_URL", f"http://127.0.0.1:{server.server_port}")
+    try:
+        app = AppTest.from_string("""
+from documentation_assistant.frontend.api_client import _get_http_client, request_api
+try:
+    assert request_api("GET", "/health", timeout=2) == {"status": "ok"}
+finally:
+    _get_http_client.clear()
+""").run(timeout=10)
+        assert not app.exception, app.exception
+        assert not app.error
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=5)
 
 
 def test_retry_opens_saved_draft_without_generating_duplicate(
