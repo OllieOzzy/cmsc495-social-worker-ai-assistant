@@ -4,6 +4,7 @@ AppTest drives widgets while HTTP requests use an in-process TestClient.
 Only the optional Ollama status response is faked; report storage is real.
 """
 
+from datetime import time
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -105,6 +106,40 @@ def test_history_navigation_and_filters_use_real_backend_pages(backend_for_ui):
     assert not app.exception, app.exception
     assert len(history().options) == 25
     assert "Student 26" in history().options[0]
+
+
+def test_invalid_session_times_show_backend_explanation_without_saving(backend_for_ui):
+    """Show the actual range error and retain pending edits for correction."""
+    saved = (
+        backend_for_ui.post(
+            "/reports/manual",
+            json={
+                "metadata": {
+                    "start_time": "09:00",
+                    "end_time": "09:25",
+                }
+            },
+        )
+        .raise_for_status()
+        .json()
+    )
+    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    next(
+        button for button in app.sidebar.button if button.label == "Open report"
+    ).click().run()
+    next(widget for widget in app.time_input if widget.label == "Start time").set_value(
+        time(10)
+    )
+    next(button for button in app.button if button.label == "Save draft").click().run()
+
+    assert not app.exception, app.exception
+    assert [message.value for message in app.error] == [
+        "End time must be at or after start time."
+    ]
+    assert next(
+        widget for widget in app.time_input if widget.label == "Start time"
+    ).value == time(10)
+    assert backend_for_ui.get(f"/reports/{saved['report_id']}").json() == saved
 
 
 def test_back_to_notes_saves_pending_edits_to_the_same_report(backend_for_ui):

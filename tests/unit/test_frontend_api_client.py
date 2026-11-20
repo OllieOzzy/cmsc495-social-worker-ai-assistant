@@ -24,7 +24,7 @@ def api_mocks(monkeypatch):
     return request, error
 
 
-@pytest.mark.parametrize("status", [409, 502, 503, 504])
+@pytest.mark.parametrize("status", [409, 422, 502, 503, 504])
 @pytest.mark.parametrize(
     "body",
     [
@@ -51,9 +51,9 @@ def test_error_with_unusable_detail_shows_fallback(api_mocks, status, body):
     )
 
 
-@pytest.mark.parametrize("status", [409, 502, 503, 504])
+@pytest.mark.parametrize("status", [409, 422, 502, 503, 504])
 def test_error_preserves_readable_detail(api_mocks, status):
-    """Keep the backend's conflict and generation explanations visible."""
+    """Keep the backend's validation, conflict, and generation explanations visible."""
     request, error = api_mocks
     message = "Reload this report before saving your changes."
     request.return_value = httpx.Response(
@@ -65,6 +65,72 @@ def test_error_preserves_readable_detail(api_mocks, status):
     assert api_client.request_api("PATCH", "/reports/example") is None
 
     error.assert_called_once_with(message)
+
+
+def test_validation_errors_identify_fields_without_exposing_input(api_mocks):
+    """Show each usable validation message while ignoring malformed error entries."""
+    request, error = api_mocks
+    field_error = {
+        "loc": ["body", "metadata", "end_time"],
+        "msg": "Use a local time in HH:MM format",
+        "input": "Private submitted value",
+        "ctx": {"error": "Internal context"},
+    }
+    request.return_value = httpx.Response(
+        422,
+        json={
+            "detail": [
+                field_error,
+                field_error,
+                {
+                    "loc": ["body", "notes"],
+                    "msg": "String should have at most 4000 characters",
+                },
+                {"loc": ["body"], "msg": "Invalid request"},
+                None,
+                "broken",
+                {},
+                {"msg": []},
+                {"msg": "  "},
+            ]
+        },
+        request=httpx.Request("POST", "http://test/reports/generate"),
+    )
+
+    assert api_client.request_api("POST", "/reports/generate") is None
+
+    error.assert_called_once_with(
+        "End time: Use a local time in HH:MM format\n\n"
+        "Notes: String should have at most 4000 characters\n\nInvalid request"
+    )
+
+
+@pytest.mark.parametrize("location", [None, {}, [], ["body", 0], ["query"], [None]])
+def test_validation_message_survives_missing_or_unusable_locations(api_mocks, location):
+    """Keep readable messages even when a field location cannot be displayed."""
+    request, error = api_mocks
+    request.return_value = httpx.Response(
+        422,
+        json={"detail": [{"loc": location, "msg": "Correct this value."}]},
+        request=httpx.Request("PATCH", "http://test/reports/example"),
+    )
+
+    assert api_client.request_api("PATCH", "/reports/example") is None
+    error.assert_called_once_with("Correct this value.")
+
+
+@pytest.mark.parametrize("detail", [[None, {}, {"msg": None}], 123, {"msg": "Invalid"}])
+def test_validation_errors_with_no_readable_message_use_fallback(api_mocks, detail):
+    """Malformed validation bodies must still produce a safe fallback."""
+    request, error = api_mocks
+    request.return_value = httpx.Response(
+        422,
+        json={"detail": detail},
+        request=httpx.Request("PATCH", "http://test/reports/example"),
+    )
+
+    assert api_client.request_api("PATCH", "/reports/example") is None
+    error.assert_called_once_with("The server could not complete the request (422).")
 
 
 def test_success_with_invalid_json_shows_error(api_mocks):
