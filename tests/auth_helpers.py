@@ -47,3 +47,14 @@ class AuthenticatedTestClient(TestClient):
         except BaseException:
             self.__exit__(None, None, None)
             raise
+
+
+def sign_in_app(app, username="workflow-admin", password=_PASSWORD):
+    """Drive the real Streamlit login form before an existing workflow test."""
+    app.run()
+    assert not app.exception, app.exception
+    app.text_input(key="login_username").set_value(username)
+    app.text_input(key="login_password").set_value(password)
+    next(button for button in app.button if button.label == "Sign in").click().run()
+    assert not app.exception, app.exception
+    return app

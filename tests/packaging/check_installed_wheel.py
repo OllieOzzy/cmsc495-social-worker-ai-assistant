@@ -49,6 +49,12 @@ def check_handwritten_report(client: httpx.Client) -> None:
     app = AppTest.from_file(str(app_path), default_timeout=20).run()
     assert not app.exception, app.exception
 
+    app.text_input(key="login_username").set_value("user")
+    app.text_input(key="login_password").set_value("password1234")
+    next(button for button in app.button if button.label == "Sign in").click()
+    app.run()
+    assert not app.exception, app.exception
+
     notes = next(field for field in app.text_area if "Session Notes" in field.label)
     notes.set_value(_NOTES)
     next(button for button in app.button if button.label == "Written by hand").click()
@@ -63,10 +69,11 @@ def check_handwritten_report(client: httpx.Client) -> None:
     assert not app.exception, app.exception
 
     report_url = f"{_BACKEND_URL}/reports/{report_id}"
-    saved = client.get(report_url).raise_for_status().json()
+    headers = {"Authorization": f"Bearer {app.session_state['auth_token']}"}
+    saved = client.get(report_url, headers=headers).raise_for_status().json()
     assert saved["notes"] == _NOTES
     assert saved["sections"]["data"] == _DATA
-    response = client.get(f"{report_url}/download").raise_for_status()
+    response = client.get(f"{report_url}/download", headers=headers).raise_for_status()
     assert response.headers["content-type"] == "application/pdf"
     # Read the exported content to verify the packaged template and saved DAP text.
     pdf = PdfReader(BytesIO(response.content), strict=True)
@@ -109,6 +116,15 @@ def main() -> None:
         }
         # The check must resolve installed packages, not import code from the checkout.
         env.pop("PYTHONPATH", None)
+        # Provision only the temporary synthetic-data database used by this check.
+        subprocess.run(
+            [str(command), "init-demo-users"],
+            cwd=workdir,
+            env=env,
+            check=True,
+            timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if windows else 0,
+        )
         # Keep launcher output in the CI log. On Windows, child processes can
         # keep an inherited log file open and block temporary directory cleanup.
         process = subprocess.Popen(

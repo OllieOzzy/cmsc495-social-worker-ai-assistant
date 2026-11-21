@@ -12,46 +12,10 @@ import httpx
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from documentation_assistant.backend.main import create_app
 from documentation_assistant.frontend import api_client, reports
-from tests.auth_helpers import AuthenticatedTestClient as TestClient
+from tests.auth_helpers import sign_in_app
 
 APP_PATH = Path(reports.__file__).with_name("app.py")
-
-
-@pytest.fixture
-def backend_for_ui(monkeypatch, tmp_path):
-    """Connect Streamlit HTTP requests to FastAPI with an isolated SQLite database."""
-    monkeypatch.setenv("DAP_DB_PATH", str(tmp_path / "frontend.db"))
-
-    with TestClient(create_app()) as backend:
-
-        def send_to_backend(method, url, **kwargs):
-            """Route frontend requests through the actual API handlers."""
-            response = backend.request(
-                method,
-                httpx.URL(url).path,
-                json=kwargs["json"],
-                params=kwargs["params"],
-            )
-            # Use the frontend's HTTP client type for status errors and decoding.
-            return httpx.Response(
-                response.status_code,
-                headers=response.headers,
-                content=response.content,
-                request=httpx.Request(method, url),
-            )
-
-        def ollama_status(url, **kwargs):
-            """Provide optional AI status without starting Ollama."""
-            assert url == "http://127.0.0.1:11434/api/tags"
-            return httpx.Response(
-                200, json={"models": []}, request=httpx.Request("GET", url)
-            )
-
-        client = Mock(request=send_to_backend, get=ollama_status)
-        monkeypatch.setattr(api_client, "_get_http_client", Mock(return_value=client))
-        yield backend
 
 
 def test_history_navigation_and_filters_use_real_backend_pages(backend_for_ui):
@@ -63,7 +27,7 @@ def test_history_navigation_and_filters_use_real_backend_pages(backend_for_ui):
         )
         assert response.status_code == 201
 
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
 
     def button(label):
         """Find a sidebar action in the current render after each rerun."""
@@ -123,7 +87,7 @@ def test_invalid_session_times_show_backend_explanation_without_saving(backend_f
         .raise_for_status()
         .json()
     )
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
     next(
         button for button in app.sidebar.button if button.label == "Open report"
     ).click().run()
@@ -162,7 +126,7 @@ def test_back_to_notes_saves_pending_edits_to_the_same_report(backend_for_ui):
         "assessment": "The second request was independent.",
         "plan": "Check in Friday after lunch.",
     }
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
     assert not app.exception, app.exception
     next(
         button for button in app.sidebar.button if button.label == "Open report"
@@ -255,7 +219,8 @@ def test_discard_changes_restores_saved_fields_without_writing(
     client = api_client._get_http_client()
     request = Mock(wraps=client.request)
     monkeypatch.setattr(client, "request", request)
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
+    request.reset_mock()
     assert not app.exception, app.exception
     next(
         button for button in app.sidebar.button if button.label == "Open report"
@@ -324,7 +289,7 @@ def test_saved_dap_edits_survive_opening_another_report(backend_for_ui):
         .json()
     )
 
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
     assert not app.exception, app.exception
 
     picker = next(field for field in app.sidebar.selectbox if field.label == "Report")
@@ -403,7 +368,7 @@ def test_approval_and_reopening_preserve_saved_content(backend_for_ui):
         .raise_for_status()
         .json()
     )
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
     assert not app.exception, app.exception
     next(
         button for button in app.sidebar.button if button.label == "Open report"
@@ -414,9 +379,6 @@ def test_approval_and_reopening_preserve_saved_content(backend_for_ui):
     next(
         widget for widget in app.text_area if widget.label == reports.DAP_FIELDS["data"]
     ).set_value(edited_data)
-    next(
-        widget for widget in app.text_input if widget.label == "Approver name"
-    ).set_value("Taylor Example")
     next(
         button for button in app.button if button.label == "Approve saved draft"
     ).click().run()
@@ -442,9 +404,6 @@ def test_approval_and_reopening_preserve_saved_content(backend_for_ui):
     assert saved["sections"]["data"] == edited_data
     assert saved["revision"] == initial["revision"] + 2
 
-    next(
-        widget for widget in app.text_input if widget.label == "Approver name"
-    ).set_value("Taylor Example")
     next(
         button for button in app.button if button.label == "Approve saved draft"
     ).click().run()
@@ -510,7 +469,7 @@ def test_stale_save_preserves_local_edits_and_current_database_version(backend_f
         .json()
     )
     path = f"/reports/{initial['report_id']}"
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
     assert not app.exception, app.exception
     next(
         button for button in app.sidebar.button if button.label == "Open report"
@@ -585,7 +544,7 @@ def test_confirmed_draft_deletion_clears_review_and_refreshes_history(backend_fo
         .json()
     )
     path = f"/reports/{selected['report_id']}"
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
     assert not app.exception, app.exception
     next(widget for widget in app.sidebar.selectbox if widget.label == "Report").select(
         selected["report_id"]
@@ -654,7 +613,8 @@ def test_blank_notes_block_ai_generation_but_allow_handwritten_draft(
     client = api_client._get_http_client()
     request = Mock(wraps=client.request)
     monkeypatch.setattr(client, "request", request)
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
+    request.reset_mock()
     assert not app.exception, app.exception
     next(
         widget for widget in app.text_area if "Session Notes" in widget.label

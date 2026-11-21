@@ -15,8 +15,32 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from documentation_assistant.frontend import api_client, reports
+from tests.auth_helpers import sign_in_app
 
 APP_PATH = Path(reports.__file__).with_name("app.py")
+_USER = {
+    "user_id": "test-owner",
+    "username": "workflow-admin",
+    "display_name": "Taylor Example",
+    "role": "admin",
+}
+
+
+def authentication_response(request):
+    """Supply login replies for recovery tests that isolate report transport failures."""
+    if request.url.path == "/auth/login":
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "t" * 43,
+                "expires_at": "2099-01-01T00:00:00Z",
+                "user": _USER,
+            },
+            request=request,
+        )
+    if request.url.path == "/auth/me":
+        return httpx.Response(200, json=_USER, request=request)
+    return None
 
 
 @pytest.fixture
@@ -24,6 +48,7 @@ def saved_report():
     """Provide a report that can be displayed in history and opened for review."""
     return {
         "report_id": "12345678-abcd-1234-abcd-123456789abc",
+        "owner_id": "test-owner",
         "revision": 1,
         "status": "draft",
         "notes": "The student practiced asking for help.",
@@ -186,6 +211,8 @@ def test_retry_opens_saved_draft_without_generating_duplicate(
         """Fail only the first saved-report fetch to reproduce a lost follow-up reply."""
         nonlocal fetches
         request = httpx.Request(method, url)
+        if auth_reply := authentication_response(request):
+            return auth_reply
         if request.url.path == "/health":
             return httpx.Response(200, json={"status": "ok"}, request=request)
         if method == "GET" and request.url.path == "/reports":
@@ -206,7 +233,7 @@ def test_retry_opens_saved_draft_without_generating_duplicate(
 
     request_api = Mock(side_effect=respond)
     ollama_status.request = request_api
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
     assert not app.exception, app.exception
 
     next(field for field in app.text_area if "Session Notes" in field.label).set_value(
@@ -231,18 +258,28 @@ def test_retry_opens_saved_draft_without_generating_duplicate(
         field.value == saved_report["sections"]["data"] for field in app.text_area
     )
     assert fetches == 2
-    assert sum(call.args[0] == "POST" for call in request_api.call_args_list) == 1
+    assert (
+        sum(
+            httpx.URL(call.args[1]).path == "/reports/generate"
+            for call in request_api.call_args_list
+        )
+        == 1
+    )
 
 
 def test_backend_reconnection_loads_history_after_status_check(
     monkeypatch, saved_report, ollama_status
 ):
     """Keep outage errors in the sidebar and reload history when the backend returns."""
-    reachable = False
+    reachable = True
 
     def respond(method, url, **kwargs):
         """Expose a switchable health check and the existing saved report."""
         request = httpx.Request(method, url)
+        if request.url.path == "/auth/me" and not reachable:
+            raise httpx.ConnectError("Backend is stopped", request=request)
+        if auth_reply := authentication_response(request):
+            return auth_reply
         if request.url.path == "/health":
             if not reachable:
                 raise httpx.ConnectError("Backend is stopped", request=request)
@@ -253,20 +290,21 @@ def test_backend_reconnection_loads_history_after_status_check(
 
     request_api = Mock(side_effect=respond)
     ollama_status.request = request_api
-    app = AppTest.from_file(str(APP_PATH), default_timeout=10).run()
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=10))
+    request_api.reset_mock()
+    reachable = False
+    app.run()
 
     assert not app.exception, app.exception
-    assert app.session_state["history_waiting_for_backend"] is True
-    assert len(app.sidebar.error) == 1
-    assert "Could not reach the report server" in app.sidebar.error[0].value
-    assert not app.main.error
+    assert "Could not reach the report server" in app.main.error[0].value
+    assert not app.text_area
     assert all(
         httpx.URL(call.args[1]).path != "/reports"
         for call in request_api.call_args_list
     )
 
     reachable = True
-    app.button(key="check_backend").click().run()
+    app.button(key="retry_session").click().run()
 
     assert not app.exception, app.exception
     assert app.session_state["history_waiting_for_backend"] is False
