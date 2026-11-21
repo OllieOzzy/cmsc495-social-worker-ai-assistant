@@ -1,9 +1,8 @@
 """Expose login, logout, and the current account without public registration."""
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.exceptions import RequestValidationError
-from fastapi.routing import APIRoute
 
+from documentation_assistant.backend.api.validation import CredentialSafeRoute
 from documentation_assistant.backend.auth.dependencies import (
     BearerCredentials,
     CurrentUser,
@@ -20,29 +19,8 @@ from documentation_assistant.backend.schemas.auth import (
     UserAccount,
 )
 
-
-class _CredentialSafeRoute(APIRoute):
-    """Keep rejected request bodies out of credential-validation responses."""
-
-    def get_route_handler(self):
-        """Wrap validation so missing fields cannot echo the submitted password."""
-        handler = super().get_route_handler()
-
-        async def handle(request: Request) -> Response:
-            try:
-                return await handler(request)
-            except RequestValidationError as exc:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Invalid authentication request.",
-                    headers={"Cache-Control": "no-store"},
-                ) from exc
-
-        return handle
-
-
 router = APIRouter(
-    prefix="/auth", tags=["Authentication"], route_class=_CredentialSafeRoute
+    prefix="/auth", tags=["Authentication"], route_class=CredentialSafeRoute
 )
 
 

@@ -11,6 +11,7 @@ from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 from documentation_assistant.backend.api.auth import router as auth_router
 from documentation_assistant.backend.api.health import router as health_router
 from documentation_assistant.backend.api.reports import router as reports_router
+from documentation_assistant.backend.api.users import router as users_router
 from documentation_assistant.backend.db.connection import initialize_database
 
 
@@ -32,7 +33,7 @@ async def lifespan(application: FastAPI):
 
 
 def create_app() -> FastAPI:
-    """Create a FastAPI instance with health, authentication, and report routes.
+    """Create FastAPI with health, authentication, user management, and report routes.
 
     Read DAP_DB_PATH during app creation so callers can configure the database
     location. The lifespan initializes SQLite before requests are accepted.
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     ).resolve()
     application.include_router(health_router)
     application.include_router(auth_router)
+    application.include_router(users_router)
     application.include_router(reports_router)
     return application
 
