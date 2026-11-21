@@ -97,6 +97,7 @@ def check_handwritten_report(client: httpx.Client) -> None:
         ).status_code
         == 403
     )
+    assert client.get(f"{_BACKEND_URL}/users", headers=headers).status_code == 403
     admin = (
         client.post(
             f"{_BACKEND_URL}/auth/login",
@@ -106,6 +107,13 @@ def check_handwritten_report(client: httpx.Client) -> None:
         .json()
     )
     admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+    accounts = (
+        client.get(f"{_BACKEND_URL}/users", headers=admin_headers)
+        .raise_for_status()
+        .json()
+    )
+    assert {account["username"] for account in accounts} == {"admin", "user"}
+    assert all("password_hash" not in account for account in accounts)
     approved = (
         client.post(
             f"{report_url}/approve",
