@@ -52,7 +52,8 @@ def test_initialize_database_creates_directory_and_checks_schema(monkeypatch, tm
 
     assert path.parent.is_dir()
     sqlite_connect.assert_called_once_with(path)
-    create, inspect = db.execute.call_args_list
+    create, inspect, create_users = db.execute.call_args_list
     assert "CREATE TABLE IF NOT EXISTS report_drafts" in create.args[0]
     assert "pragma_table_info" in inspect.args[0]
+    assert "CREATE TABLE IF NOT EXISTS users" in create_users.args[0]
     db.close.assert_called_once()

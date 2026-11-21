@@ -45,7 +45,7 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
 
 
 def initialize_database(path: Path) -> None:
-    """Create or upgrade the reports table before the backend serves requests."""
+    """Create report and account tables and upgrade missing report columns."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect(path) as connection:
         connection.execute("""
@@ -81,6 +81,19 @@ def initialize_database(path: Path) -> None:
             )
         """)
         _ensure_added_columns(connection)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY NOT NULL,
+                username TEXT NOT NULL COLLATE NOCASE UNIQUE
+                    CHECK(length(username) BETWEEN 3 AND 64),
+                display_name TEXT NOT NULL
+                    CHECK(length(trim(display_name)) BETWEEN 1 AND 200),
+                password_hash TEXT NOT NULL CHECK(length(trim(password_hash)) > 0),
+                role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin')),
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                created_at TEXT NOT NULL
+            )
+        """)
 
 
 def _ensure_added_columns(connection: sqlite3.Connection) -> None:
