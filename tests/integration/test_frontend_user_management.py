@@ -105,3 +105,64 @@ def test_admin_cannot_disable_own_account_in_gui(backend_for_ui):
     button(app, "Back to reports").click().run()
     assert not app.exception, app.exception
     assert any("Session Notes" in item.label for item in app.text_area)
+
+
+def test_admin_password_reset_signs_user_out_and_new_password_works(backend_for_ui):
+    """Reset another account through the GUI, then require its fresh credentials."""
+    account = create_user(
+        backend_for_ui.app.state.database_path,
+        username="regular",
+        display_name="Regular User",
+        password_hash=hash_password(PASSWORD),
+    )
+    regular = sign_in_app(
+        AppTest.from_file(str(APP_PATH), default_timeout=15), "regular", PASSWORD
+    )
+    admin = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=15))
+    button(admin, "Manage users").click().run()
+    admin.selectbox(key="managed_user_id").set_value(str(account.user_id)).run()
+    new_password = "A new synthetic GUI password!"
+    admin.text_input(key=f"reset_password_{account.user_id}").set_value(new_password)
+    admin.text_input(key=f"reset_password_confirmation_{account.user_id}").set_value(
+        new_password
+    )
+    next(
+        item
+        for item in admin.checkbox
+        if item.label == "I understand this signs the user out of all sessions"
+    ).set_value(True)
+    button(admin, "Reset password").click().run()
+    assert not admin.exception, admin.exception
+    assert admin.text_input(key=f"reset_password_{account.user_id}").value == ""
+    assert any("Password reset for regular" in notice.value for notice in admin.success)
+    regular.run()
+    assert not regular.exception, regular.exception
+    assert "auth_token" not in regular.session_state
+    sign_in_app(regular, "regular", new_password)
+    assert not regular.exception, regular.exception
+    assert regular.session_state["auth_user"]["user_id"] == str(account.user_id)
+
+
+def test_admin_self_reset_returns_to_login_and_clears_private_state(backend_for_ui):
+    """The admin can reset their own password but cannot keep the old browser session."""
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=15))
+    button(app, "Manage users").click().run()
+    user_id = str(backend_for_ui.account.user_id)
+    app.selectbox(key="managed_user_id").set_value(user_id).run()
+    new_password = "A new administrator GUI password!"
+    app.text_input(key=f"reset_password_{user_id}").set_value(new_password)
+    app.text_input(key=f"reset_password_confirmation_{user_id}").set_value(new_password)
+    next(
+        item
+        for item in app.checkbox
+        if item.label == "I understand this signs the user out of all sessions"
+    ).set_value(True)
+    button(app, "Reset password").click().run()
+    assert not app.exception, app.exception
+    assert "auth_token" not in app.session_state
+    assert "app_view" not in app.session_state
+    assert not app.text_area
+    assert any(item.label == "Sign in" for item in app.button)
+    sign_in_app(app, "workflow-admin", new_password)
+    assert not app.exception, app.exception
+    assert app.session_state["auth_user"]["role"] == "admin"

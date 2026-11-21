@@ -137,6 +137,30 @@ def check_handwritten_report(client: httpx.Client) -> None:
     assert "report" not in app.session_state
     assert "auth_token" not in app.session_state
     assert client.get(report_url, headers=headers).status_code == 401
+    # Password recovery works in the installed package without restoring old tokens.
+    replacement = "Synthetic installed reset password!"
+    client.post(
+        f"{_BACKEND_URL}/users/{saved['owner_id']}/reset-password",
+        json={"password": replacement},
+        headers=admin_headers,
+    ).raise_for_status()
+    assert (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "user", "password": "password1234"},
+        ).status_code
+        == 401
+    )
+    recovered = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "user", "password": replacement},
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert recovered["user"]["user_id"] == saved["owner_id"]
+    assert client.get(report_url, headers=headers).status_code == 401
 
 
 def stop_launcher(process: subprocess.Popen) -> None:
@@ -202,7 +226,7 @@ def main() -> None:
         finally:
             stop_launcher(process)
     print(
-        "Installed dap-assistant verified login, ownership, admin approval, PDF export, and logout."
+        "Installed dap-assistant verified login, ownership, admin approval, PDF export, logout, and password reset."
     )
 
 
