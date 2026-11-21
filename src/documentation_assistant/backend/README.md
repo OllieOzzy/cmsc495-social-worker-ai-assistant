@@ -154,6 +154,52 @@ Install the dependencies using the virtual environment's Python:
 python -m pip install -r requirements.txt
 ```
 
+## Local Account Setup
+
+Account storage and setup commands are available on the authentication branch.
+Login, report ownership, and administrator-only approval are still being
+implemented. Creating accounts alone does not protect the report endpoints.
+
+Install the project in editable mode to make the `dap-assistant` command
+available in your active virtual environment:
+
+```bash
+python -m pip install -e .
+```
+
+For synthetic-data demonstrations, explicitly create the two demo accounts:
+
+```bash
+dap-assistant init-demo-users
+```
+
+| Username | Password | Role |
+| --- | --- | --- |
+| `admin` | `password1234` | Administrator |
+| `user` | `password1234` | Regular user |
+
+Passwords are stored as salted Argon2id hashes. Demo accounts are not created
+automatically, and rerunning this command does not reset existing passwords
+or change existing roles. Use these public credentials only with synthetic data.
+
+To add another account, run:
+
+```bash
+dap-assistant create-user
+```
+
+The command prompts for a username, display name, password, and password
+confirmation. Password entry is hidden. New accounts default to the `user`
+role; use `dap-assistant create-user --role admin` to create an administrator.
+You can also supply `--username` and `--display-name`. Passwords are entered
+interactively rather than passed as command arguments and must contain
+15–1,024 characters. The explicit demo setup uses its shorter public password.
+
+Both commands use the same SQLite database as FastAPI: `data/dap.db` relative
+to the working directory, or the location set by `DAP_DB_PATH`. Run setup and
+the backend with the same working directory and database setting. Running
+`dap-assistant` without a subcommand still starts the backend and frontend.
+
 ## Start the Server
 
 ```shell
