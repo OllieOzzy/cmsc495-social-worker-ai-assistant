@@ -3,6 +3,41 @@
 Major changes to the DAP Documentation Assistant. Versions use release tags
 such as `1.0.0` and `1.1.0`, without a `v` prefix.
 
+## Unreleased
+
+### Added
+
+- Local user accounts with regular-user and administrator roles, salted
+  Argon2id password hashes, and terminal account-creation commands.
+- Explicit demo setup for `admin` and `user`; existing credentials and roles
+  are preserved when setup runs again.
+- Backend login, account lookup, and logout with hashed session tokens,
+  eight-hour expiry, and persisted login-attempt throttling.
+- Report ownership, scoped history and PDF access, owner-only draft changes,
+  and administrator-only approval and reopening.
+- Streamlit sign-in and sign-out, role-based controls, session verification,
+  and clearing of private state after logout, expiry, or a revoked session.
+- Authentication and permission regression tests and authenticated
+  installed-wheel validation.
+
+### Changed
+
+- Report endpoints require a valid bearer token. Approval records the signed-in
+  administrator's identity rather than a client-supplied reviewer name.
+- Account and session tables are added to the existing report database.
+  Older reports remain unassigned; authenticated regular users cannot see
+  them, and administrators can review them. No automatic assignment occurs.
+- Sensitive report JSON responses use `Cache-Control: no-store`, matching
+  the existing PDF and authentication response protections.
+
+### Setup Notes
+
+- Create accounts explicitly before signing in. Public demo credentials are
+  for synthetic data only; ordinary account creation requires a password of
+  15–1,024 characters.
+- Account setup and the launcher must use the same database path. Approved
+  reports remain protected from deletion, including by administrators.
+
 ## 1.1.0
 
 This release focuses on reliability, regression testing, and reducing repeated

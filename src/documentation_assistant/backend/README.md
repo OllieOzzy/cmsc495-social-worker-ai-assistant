@@ -13,12 +13,14 @@ flowchart TD
     UI["Streamlit frontend"]
 
     subgraph API["FastAPI backend"]
-        Routes["Health and report routes<br/>Pydantic validation"]
+        Routes["Health, authentication, and report routes<br/>Pydantic validation"]
+        Auth["Account sessions<br/>Identity and role checks"]
         LLM["Ollama client<br/>DAP generation prompt"]
         Store["Report storage<br/>Revision and approval checks"]
         PDF["PDF renderer<br/>School DAP template"]
 
         Routes -->|"Generate or regenerate"| LLM
+        Routes -->|"Authenticate report requests"| Auth
         Routes -->|"Save or load reports"| Store
         Routes -->|"Export"| PDF
         Store -->|"Saved report"| PDF
@@ -30,6 +32,7 @@ flowchart TD
     UI <-->|"Requests, reports, and PDFs"| API
     LLM <-->|"POST /api/chat"| Ollama
     Store <--> SQLite
+    Auth <--> SQLite
 
     classDef frontend fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef backend fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
@@ -38,7 +41,7 @@ flowchart TD
     classDef export fill:#FEF3C7,stroke:#B45309,color:#78350F
 
     class UI frontend
-    class Routes backend
+    class Routes,Auth backend
     class LLM,Ollama ai
     class Store,SQLite storage
     class PDF export
@@ -55,6 +58,9 @@ flowchart LR
     subgraph API["FastAPI backend"]
         App["Application entry point<br/>main.py"]
         Reports["Report router<br/>api/reports.py"]
+        AuthRouter["Authentication router<br/>api/auth.py"]
+        Auth["Account and session services<br/>Argon2 verification and role checks"]
+        AuthRoutes["POST /auth/login · GET /auth/me<br/>POST /auth/logout"]
         Schemas["Pydantic validation<br/>schemas/reports.py"]
 
         subgraph Routes["API endpoints"]
@@ -77,6 +83,10 @@ flowchart LR
 
         App --> Health
         App --> Reports
+        App --> AuthRouter
+        AuthRouter --> AuthRoutes
+        AuthRoutes --> Auth
+        Reports -->|"Require signed-in user or administrator"| Auth
         Reports --> Schemas
         Reports --> Manual & Generate & Read & Edit & Regenerate & Review & Download
 
@@ -103,6 +113,7 @@ flowchart LR
     App --> Docs
     LLM <-->|"POST /api/chat"| Ollama
     Store <--> DB
+    Auth <--> DB
     Template -->|"Base form for the first page"| PDF
 
     classDef frontend fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
@@ -112,7 +123,7 @@ flowchart LR
     classDef export fill:#FEF3C7,stroke:#B45309,color:#78350F
 
     class UI frontend
-    class App,Docs,Reports,Schemas,Health,Manual,Generate,Read,Edit,Regenerate,Review backend
+    class App,Docs,Reports,AuthRouter,Auth,AuthRoutes,Schemas,Health,Manual,Generate,Read,Edit,Regenerate,Review backend
     class LLM,Prompt,Ollama ai
     class Store,DB storage
     class Download,PDF,Template export
@@ -282,6 +293,9 @@ prompt to return. Saved reports remain in SQLite and are available the next
 time you start FastAPI.
 
 ## Available Endpoints
+
+Successful report JSON responses use `Cache-Control: no-store` to prevent
+caching sensitive report content. PDF downloads use the same protection.
 
 | Endpoint | Purpose |
 | --- | --- |

@@ -59,6 +59,46 @@ The wheel includes the frontend, backend, PDF template, and generation prompt.
 Ollama and its model are installed separately and are only needed for AI-assisted
 drafting. See the [Ollama guide](docs/LOCAL-OLLAMA-SETUP.md) to choose another model.
 
+## Authentication on the Development Branch
+
+The published **1.1.0** wheel predates the authentication work. To test the
+authentication branch from source, use a Python 3.12 environment and run these
+commands from the repository root:
+
+```shell
+python -m pip install -e .
+dap-assistant init-demo-users
+dap-assistant
+```
+
+Open `http://127.0.0.1:8501` and sign in with a synthetic-data demo account:
+
+| Username | Password | Access |
+| --- | --- | --- |
+| `user` | `password1234` | Own reports only; can edit and delete own unapproved drafts. |
+| `admin` | `password1234` | All reports; can approve or reopen any report, and edit only own drafts. |
+
+Demo accounts are created only by the explicit setup command, which leaves
+existing credentials and roles unchanged. Use these public passwords only
+with synthetic records. Use `dap-assistant create-user` to add a regular
+account, or append `--role admin` for an administrator. New non-demo accounts
+require passwords of 15–1,024 characters.
+
+Account setup and the launcher must use the same working directory and
+`DAP_DB_PATH`. Accounts, session hashes, and reports share the SQLite file.
+Existing reports remain unassigned and are visible only to administrators
+through authenticated routes until explicitly assigned. Approved reports
+cannot be edited or deleted until an administrator reopens them.
+
+Sign out using the sidebar. Sessions expire after eight hours; logout and
+invalid sessions clear private browser-session state. FastAPI enforces report
+permissions independently of the interface. API clients must sign in through
+`POST /auth/login` and send the returned bearer token on report requests.
+The health endpoint remains public for startup checks.
+
+See the [backend account guide](src/documentation_assistant/backend/README.md#local-account-setup)
+and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and-permissions).
+
 ## 🗂️ Repository Structure
 
 ```text
@@ -92,12 +132,21 @@ drafting. See the [Ollama guide](docs/LOCAL-OLLAMA-SETUP.md) to choose another m
 │       │   ├── 🐍 main.py
 │       │   ├── 📁 api/
 │       │   │   ├── 🐍 __init__.py
+│       │   │   ├── 🐍 auth.py
 │       │   │   ├── 🐍 health.py
 │       │   │   └── 🐍 reports.py
+│       │   ├── 📁 auth/
+│       │   │   ├── 🐍 __init__.py
+│       │   │   ├── 🐍 cli.py
+│       │   │   ├── 🐍 dependencies.py
+│       │   │   ├── 🐍 passwords.py
+│       │   │   └── 🐍 service.py
 │       │   ├── 📁 db/
 │       │   │   ├── 🐍 __init__.py
 │       │   │   ├── 🐍 connection.py
-│       │   │   └── 🐍 drafts.py
+│       │   │   ├── 🐍 drafts.py
+│       │   │   ├── 🐍 sessions.py
+│       │   │   └── 🐍 users.py
 │       │   ├── 📁 export/
 │       │   │   ├── 🐍 __init__.py
 │       │   │   ├── 🐍 pdf.py
@@ -111,40 +160,58 @@ drafting. See the [Ollama guide](docs/LOCAL-OLLAMA-SETUP.md) to choose another m
 │       │   │       └── 📝 dap_generation.txt
 │       │   └── 📁 schemas/
 │       │       ├── 🐍 __init__.py
+│       │       ├── 🐍 auth.py
 │       │       └── 🐍 reports.py
 │       └── 📁 frontend/
 │           ├── 📄 README.md
 │           ├── 🐍 __init__.py
 │           ├── 🐍 api_client.py
 │           ├── 🐍 app.py
+│           ├── 🐍 auth.py
+│           ├── 🐍 auth_state.py
 │           ├── 🐍 forms.py
 │           ├── 🐍 reports.py
 │           └── 🐍 sidebar.py
 └── 📁 tests/
+    ├── 🐍 __init__.py
+    ├── 🐍 auth_helpers.py
     ├── 📁 integration/
+    │   ├── 🐍 conftest.py
+    │   ├── 🧪 test_account_setup.py
+    │   ├── 🧪 test_auth_api.py
+    │   ├── 🧪 test_frontend_auth.py
     │   ├── 🧪 test_frontend_recovery.py
     │   ├── 🧪 test_frontend_reports.py
     │   ├── 🧪 test_health_api.py
     │   ├── 🧪 test_report_pdf.py
-    │   └── 🧪 test_reports_api.py
+    │   ├── 🧪 test_report_ownership.py
+    │   ├── 🧪 test_report_permissions.py
+    │   ├── 🧪 test_reports_api.py
+    │   └── 🧪 test_users_db.py
     ├── 📁 llm/
     │   ├── 🧪 test_dap_quality.py
     │   └── 🧪 test_live_ollama.py
     ├── 📁 packaging/
     │   └── 🐍 check_installed_wheel.py
     └── 📁 unit/
+        ├── 🧪 test_auth_service.py
         ├── 🧪 test_db_connection.py
         ├── 🧪 test_drafts.py
         ├── 🧪 test_frontend_api_client.py
         ├── 🧪 test_frontend_app.py
+        ├── 🧪 test_frontend_auth.py
         ├── 🧪 test_frontend_forms.py
         ├── 🧪 test_frontend_reports.py
         ├── 🧪 test_frontend_sidebar.py
         ├── 🧪 test_health_handler.py
+        ├── 🧪 test_launcher.py
         ├── 🧪 test_ollama.py
+        ├── 🧪 test_passwords.py
         ├── 🧪 test_pdf_renderer.py
         ├── 🧪 test_report_handlers.py
-        └── 🧪 test_report_schemas.py
+        ├── 🧪 test_report_schemas.py
+        ├── 🧪 test_user_schemas.py
+        └── 🧪 test_users.py
 ```
 
 The backend creates or upgrades the local SQLite database during startup.
@@ -157,10 +224,10 @@ repository's `data/` folder.
 ```mermaid
 flowchart TD
     Worker["School social worker"]
-    UI["Streamlit frontend"]
-    API["FastAPI backend"]
+    UI["Streamlit frontend<br/>Sign-in and report screens"]
+    API["FastAPI backend<br/>Session and report permissions"]
     AI["Local Ollama"]
-    DB[("Local SQLite")]
+    DB[("Local SQLite<br/>Accounts, sessions, and reports")]
     PDF["PDF exporter"]
 
     Worker -->|"Enter notes or start a manual draft"| UI
