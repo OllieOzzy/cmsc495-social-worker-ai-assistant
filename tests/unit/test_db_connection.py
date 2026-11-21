@@ -34,7 +34,7 @@ def test_connect_exits_transaction_and_closes_connection(monkeypatch, tmp_path, 
         db.__exit__.assert_called_once_with(None, None, None)
 
     sqlite_connect.assert_called_once_with(path)
-    db.execute.assert_not_called()
+    db.execute.assert_called_once_with("PRAGMA foreign_keys = ON")
     db.close.assert_called_once()
 
 
@@ -52,8 +52,13 @@ def test_initialize_database_creates_directory_and_checks_schema(monkeypatch, tm
 
     assert path.parent.is_dir()
     sqlite_connect.assert_called_once_with(path)
-    create, inspect, create_users = db.execute.call_args_list
+    enable_keys, create, inspect, create_users, sessions, attempts = (
+        db.execute.call_args_list
+    )
+    assert enable_keys.args[0] == "PRAGMA foreign_keys = ON"
     assert "CREATE TABLE IF NOT EXISTS report_drafts" in create.args[0]
     assert "pragma_table_info" in inspect.args[0]
     assert "CREATE TABLE IF NOT EXISTS users" in create_users.args[0]
+    assert "CREATE TABLE IF NOT EXISTS user_sessions" in sessions.args[0]
+    assert "CREATE TABLE IF NOT EXISTS login_attempts" in attempts.args[0]
     db.close.assert_called_once()

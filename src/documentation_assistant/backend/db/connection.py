@@ -41,6 +41,7 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
     """
     # Commit or roll back the transaction before closing the connection.
     with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("PRAGMA foreign_keys = ON")
         yield connection
 
 
@@ -92,6 +93,21 @@ def initialize_database(path: Path) -> None:
                 role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin')),
                 is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
                 created_at TEXT NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                token_hash TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL CHECK(expires_at > created_at)
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                username TEXT PRIMARY KEY NOT NULL,
+                failures INTEGER NOT NULL CHECK(failures >= 1),
+                window_started_at INTEGER NOT NULL
             )
         """)
 
