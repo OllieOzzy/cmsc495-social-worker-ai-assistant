@@ -2,8 +2,10 @@
 
 Both servers listen on loopback. The launcher waits for FastAPI to become
 ready before starting Streamlit and cleans up both processes on exit.
+Account setup subcommands provision users without starting either server.
 """
 
+import argparse
 import os
 import socket
 import subprocess
@@ -12,6 +14,11 @@ from pathlib import Path
 from time import monotonic, sleep
 
 import httpx
+
+from documentation_assistant.backend.auth.cli import (
+    configure_account_commands,
+    run_account_command,
+)
 
 _HOST = "127.0.0.1"
 _BACKEND_PORT = 8000
@@ -65,7 +72,7 @@ def _stop_server(process: subprocess.Popen) -> None:
         process.wait()
 
 
-def main() -> int:
+def _run_servers() -> int:
     """Supervise both servers until Ctrl+C or either process exits.
 
     Return 0 for Ctrl+C or 1 for a startup failure or unexpected server exit.
@@ -123,3 +130,17 @@ def main() -> int:
         # Stop Streamlit first and also clean up after a partial startup.
         for server in reversed(servers):
             _stop_server(server)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Launch the application or run an explicitly requested account setup command."""
+    parser = argparse.ArgumentParser(prog="dap-assistant")
+    configure_account_commands(parser)
+    arguments = parser.parse_args(argv)
+    if arguments.command is not None:
+        return run_account_command(arguments)
+    return _run_servers()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
