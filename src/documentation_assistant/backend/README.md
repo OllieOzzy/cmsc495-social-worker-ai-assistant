@@ -158,8 +158,8 @@ python -m pip install -r requirements.txt
 
 Account setup, backend login, report ownership, and administrator-only review
 are available on the authentication branch. All report endpoints require a
-valid bearer session. The frontend login screen is the next step; use `/docs`
-to test the authenticated backend during this rollout.
+valid bearer session. Sign in through Streamlit, or use `/docs` and its
+**Authorize** button to test the backend directly.
 
 Install the project in editable mode to make the `dap-assistant` command
 available in your active virtual environment:

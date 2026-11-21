@@ -46,6 +46,8 @@ flowchart LR
 
     subgraph UI["Streamlit frontend"]
         Start["Open the app"]
+        Login["Sign in<br/>Verify session before rendering reports"]
+        Logout["Sign out or session expires<br/>Clear reports, forms, filters, and token"]
         Status["Backend Status and AI Status<br/>Check on startup, every 60 seconds, and on click"]
         Offline["Backend Status turns red<br/>Connection error appears below the buttons"]
         Menu["App menu<br/>About and Contacts"]
@@ -64,10 +66,13 @@ flowchart LR
         Delete["Confirm and delete draft"]
         Download["Prepare and download PDF<br/>Draft or approved report"]
 
-        Start --> Status
+        Start --> Login
+        Login --> Status
         Start --> Menu
-        Start --> Entry
-        Start --> History
+        Login --> Entry
+        Login --> History
+        Login --> Logout
+        Logout --> Login
         Status -->|"FastAPI unavailable"| Offline
         Offline -->|"Click Backend Status to recheck"| Status
 
@@ -81,14 +86,14 @@ flowchart LR
         Open -->|"New AI draft saved but could not be opened"| Retry
         Retry -->|"Use the same report ID"| Open
 
-        Review --> Edit
-        Review --> Regenerate
-        Review --> Approve
-        Review --> Delete
+        Review -->|"Owner"| Edit
+        Review -->|"Owner"| Regenerate
+        Review -->|"Admin"| Approve
+        Review -->|"Owner"| Delete
         Edit --> Review
         Regenerate --> Review
         Approve --> Approved
-        Approved --> Reopen
+        Approved -->|"Admin"| Reopen
         Reopen --> Review
         Review --> Download
         Approved --> Download
@@ -96,6 +101,7 @@ flowchart LR
 
     subgraph API["FastAPI endpoints"]
         HealthAPI["GET /health"]
+        AuthAPI["POST /auth/login<br/>GET /auth/me<br/>POST /auth/logout"]
         ListAPI["GET /reports"]
         ManualAPI["POST /reports/manual"]
         GenerateAPI["POST /reports/generate"]
@@ -111,6 +117,8 @@ flowchart LR
     Ollama["Local Ollama<br/>GET /api/tags"]
 
     Worker --> Start
+    Login -.-> AuthAPI
+    Logout -.-> AuthAPI
     Status -.->|"Backend check"| HealthAPI
     Status -.->|"AI reachability check"| Ollama
     History -.-> ListAPI
@@ -131,7 +139,7 @@ flowchart LR
     classDef action fill:#FEF3C7,stroke:#B45309,color:#78350F
     classDef approved fill:#DCFCE7,stroke:#15803D,color:#14532D
 
-    class Start,Menu,Entry,History navigation
+    class Start,Login,Logout,Menu,Entry,History navigation
     class Manual,Open,Review,Edit report
     class Status,Generate,Regenerate,Ollama service
     class Offline,Delete error
@@ -171,7 +179,20 @@ Install the dependencies with the virtual environment's Python:
 
 ```shell
 python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
+
+Create the synthetic-data demo accounts once, using the same working directory
+and `DAP_DB_PATH` setting as the backend:
+
+```shell
+dap-assistant init-demo-users
+```
+
+The demo accounts are `admin` / `password1234` and `user` / `password1234`.
+They are not created automatically. Existing accounts are left unchanged.
+Use `dap-assistant create-user` to add another regular account, or add
+`--role admin` for an administrator. [Account setup guide](../backend/README.md#local-account-setup)
 
 ## Start the Servers
 
@@ -221,22 +242,47 @@ FastAPI, press **Ctrl+C** in its terminal. Saved reports remain in SQLite.
 
 ## Use the Frontend
 
-1. Under **History Reports**, select **New report**. Enter synthetic session
+1. **Sign in** with an account created through the setup commands. Report
+   screens and history remain hidden until FastAPI verifies the session.
+2. Under **History Reports**, select **New report**. Enter synthetic session
    notes and any optional session details. The social worker fills in the risk
    and mandated reporting fields.
-2. Select **Written by hand** to start with blank DAP sections or
+3. Select **Written by hand** to start with blank DAP sections or
    **AI-assisted draft** to generate sections from the notes. AI-assisted
    drafts require notes.
-3. In the review screen, compare the source notes with the DAP sections.
-   Select **Save draft** after editing. To approve the saved version, enter
-   the approver's name and select **Approve saved draft**.
-4. Select **Prepare PDF**, then **Download PDF**. The PDF uses the last
+4. In the review screen, compare the source notes with the DAP sections.
+   Select **Save draft** after editing your own draft. An administrator can
+   select **Approve saved draft**; the backend records the signed-in account
+   as the reviewer, so there is no editable approver-name field.
+5. Select **Prepare PDF**, then **Download PDF**. The PDF uses the last
    saved version. You can export drafts and approved reports.
 
 Use **Filter report** and **Open report** under **History Reports** to find a
-saved report. To edit an approved report, select **Reopen as draft**.
+saved report. An administrator must select **Reopen as draft** before the
+owner can edit or delete an approved report.
 History shows 25 reports per page, newest first. Use **Previous** and **Next**
 to browse matching reports. Applying or clearing filters returns to page one.
+
+### Accounts and Permissions
+
+Regular users see only their own reports. Administrators see all reports,
+including unassigned reports from older databases, and can approve or reopen
+them. Administrators view another user's content as read-only; only the owner
+can edit, regenerate, or delete an unapproved draft. Approval and reopening
+controls are hidden for regular users. The backend enforces the same rules.
+
+Use **Sign out** in the sidebar when finished. The app revokes the server
+session and clears browser-session state, including open reports, pending
+notes, filters, password widgets, and PDF state. If the backend is unavailable,
+local sign-out still clears the browser state and explains that server-side
+revocation could not be confirmed.
+
+Sessions last eight hours. Full app reruns verify the account with FastAPI;
+an expiry check also runs every 60 seconds while the report page is open.
+Expired sessions and backend `401` responses clear private state and return
+to login. Role changes also clear cached reports before rendering again.
+Tokens are sent on individual FastAPI requests, never stored in a shared
+HTTP client's default headers or sent to Ollama.
 
 ### Service Status
 
@@ -246,7 +292,10 @@ panel. Click **Backend Status** or **AI Status** to check immediately.
 Other full-page reruns reuse each service's result for up to 60 seconds;
 clicking a status button immediately rechecks that service.
 
-If FastAPI is down, **Backend Status** turns red and the connection error
+If FastAPI cannot verify the session, report screens stay hidden. Start the
+backend and select **Retry sign in status**, or sign out locally.
+
+Within a verified session, if a health check fails, **Backend Status** turns red and the connection error
 appears below the buttons. If report history couldn't load, start FastAPI
 and click **Backend Status** to load it. **AI Status** checks whether Ollama
 is reachable. AI-assisted drafting also needs the configured model installed.
@@ -271,7 +320,7 @@ python -m pytest tests/unit -k frontend -v
 
 The unit tests cover API response handling, Ollama status checks, report labels
 and filters, date and time conversion, screen routing, session state, report
-actions, and PDF download controls. They mock HTTP requests and Streamlit
+actions, authentication state, per-request token handling, and PDF download controls. They mock HTTP requests and Streamlit
 controls to check each module independently.
 
 Run the frontend integration tests:
@@ -289,8 +338,11 @@ responses are mocked, so both suites run without a model download.
 
 | Workflow | What the integration tests verify |
 | --- | --- |
+| Login and logout | Real credential verification, rejected passwords, server session revocation, and clearing private browser state. |
+| Account boundaries | Switching users cannot retain reports, filters, or PDF state; admin demotion clears previously visible reports. |
+| Role controls and expiry | Only admins see approval/reopening controls, other owners' reports are read-only for admins, and expired or revoked sessions return to login. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
-| Backend reconnection | A backend outage skips history loading, and a manual status check restores history after recovery. |
+| Backend reconnection | An unverifiable session hides report screens; retrying session verification restores access after recovery. |
 | Validation errors | Invalid session times display the backend explanation, retain pending edits, and leave the saved report unchanged. |
 | Proxy handling and clients | Local requests work with a configured proxy; cached clients remain isolated by session and are closed on release. |
 | History pagination | Previous/Next navigation shows the correct page; applying or clearing filters returns to page one. |
@@ -303,13 +355,16 @@ responses are mocked, so both suites run without a model download.
 | Discard changes | Saved values are restored without writing pending changes to SQLite. |
 
 Both suites run in the existing **Unit Tests** and **Integration Tests** CI jobs.
-The installed-wheel validation also exercises handwritten draft creation, saving,
+The installed-wheel validation also signs in before exercising handwritten draft creation, saving,
 and PDF export on Windows, Ubuntu, and macOS.
 
 ## Troubleshooting
 
 | What you see | What to do |
 | --- | --- |
+| Sign-in credentials are rejected | Check the account name and password. Run `dap-assistant init-demo-users` against the backend's database if demo accounts have not been created. |
+| Your session could not be verified | Start FastAPI and select **Retry sign in status**. You can still sign out locally. |
+| Approval or reopening controls are missing | These actions require an administrator account. Regular users can read and export their own approved reports. |
 | `ModuleNotFoundError: No module named 'documentation_assistant'` | Set `PYTHONPATH` to the repository's `src` folder and restart Streamlit. |
 | `File does not exist` when launching Streamlit | Run the command from the repository root and keep the `src/` prefix in the script path. |
 | Backend Status is red and a connection error appears below it | Start FastAPI, then click **Backend Status** to check again and load report history. |
