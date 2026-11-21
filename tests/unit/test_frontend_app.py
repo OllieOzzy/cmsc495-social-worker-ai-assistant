@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from documentation_assistant.frontend import auth, reports, sidebar
+from documentation_assistant.frontend import auth, reports, sidebar, users
 
 APP_PATH = Path(reports.__file__).with_name("app.py")
 
@@ -38,6 +38,12 @@ def app(monkeypatch):
     monkeypatch.setattr(sidebar, "show_sidebar", handlers["show_sidebar"])
     handlers["require_login"] = Mock(return_value=True)
     monkeypatch.setattr(auth, "require_login", handlers["require_login"])
+    handlers["show_admin_navigation"] = Mock(return_value=False)
+    handlers["show_user_management"] = Mock()
+    monkeypatch.setattr(
+        users, "show_admin_navigation", handlers["show_admin_navigation"]
+    )
+    monkeypatch.setattr(users, "show_user_management", handlers["show_user_management"])
     return SimpleNamespace(ui=streamlit, **handlers)
 
 
@@ -49,6 +55,16 @@ def test_default_view_routes_to_new_report(app):
     app.new_report.assert_called_once_with()
     app.review_report.assert_not_called()
     app.open_report.assert_not_called()
+
+
+def test_user_management_routes_without_rendering_report_content(app):
+    """The management screen and report screens do not share the same render."""
+    app.show_admin_navigation.return_value = True
+    with pytest.raises(RenderStopped):
+        runpy.run_path(str(APP_PATH))
+    app.show_user_management.assert_called_once_with()
+    app.show_sidebar.assert_not_called()
+    app.review_report.assert_not_called()
 
 
 def test_unauthenticated_view_does_not_render_reports_or_history(app):

@@ -1,4 +1,4 @@
-"""Configure the Streamlit app and route between reports and team contacts."""
+"""Route Streamlit between reports, admin account management, and team contacts."""
 
 from urllib.parse import urlsplit
 
@@ -11,6 +11,10 @@ from documentation_assistant.frontend.reports import (
     review_report,
 )
 from documentation_assistant.frontend.sidebar import show_sidebar
+from documentation_assistant.frontend.users import (
+    show_admin_navigation,
+    show_user_management,
+)
 
 ABOUT = """## DAP Documentation Assistant
 
@@ -46,6 +50,10 @@ if st.query_params.get("view") == "contacts":
 st.title("DAP Documentation Assistant")
 
 if not require_login():
+    st.stop()
+
+if show_admin_navigation():
+    show_user_management()
     st.stop()
 
 show_sidebar()
