@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 
 import streamlit as st
 
+from documentation_assistant.frontend.auth import require_login
 from documentation_assistant.frontend.reports import (
     new_report,
     open_report,
@@ -43,6 +44,9 @@ if st.query_params.get("view") == "contacts":
     st.stop()
 
 st.title("DAP Documentation Assistant")
+
+if not require_login():
+    st.stop()
 
 show_sidebar()
 

@@ -16,12 +16,89 @@ def api_mocks(monkeypatch):
     behave as they do for network replies.
     """
     request = Mock()
+    monkeypatch.setattr(api_client.st, "session_state", {})
     error = Mock()
     monkeypatch.setattr(
         api_client, "_get_http_client", Mock(return_value=Mock(request=request))
     )
     monkeypatch.setattr(api_client.st, "error", error)
     return request, error
+
+
+@pytest.mark.parametrize(
+    "path, authorized",
+    [
+        ("/reports", True),
+        ("/auth/me", True),
+        ("/auth/logout", True),
+        ("/auth/login", False),
+        ("/health", False),
+    ],
+)
+def test_token_is_sent_per_backend_request_only(api_mocks, path, authorized):
+    """Do not put the token in a cached client's shared default headers."""
+    request, _ = api_mocks
+    api_client.st.session_state["auth_token"] = "first-token"
+    request.return_value = httpx.Response(
+        200, json={}, request=httpx.Request("GET", "http://test" + path)
+    )
+    api_client.request_api("GET", path)
+    assert request.call_args.kwargs.get("headers", {}) == (
+        {"Authorization": "Bearer first-token"} if authorized else {}
+    )
+    api_client._get_http_client.return_value.headers.update.assert_not_called()
+
+
+def test_unauthorized_session_clears_private_state_and_reruns(api_mocks, monkeypatch):
+    """A revoked token cannot leave reports, password widgets, or PDF data visible."""
+    request, _ = api_mocks
+    api_client.st.session_state.update(
+        auth_token="old-token",
+        report={"notes": "Private"},
+        prepared_pdf=b"Private",
+        login_password="Private",
+    )
+    rerun = Mock()
+    monkeypatch.setattr(api_client.st, "rerun", rerun)
+    request.return_value = httpx.Response(
+        401,
+        json={"detail": "Expired"},
+        request=httpx.Request("GET", "http://test/reports"),
+    )
+    assert api_client.request_api("GET", "/reports") is None
+    assert set(api_client.st.session_state) == {"auth_notice"}
+    rerun.assert_called_once_with(scope="app")
+
+
+def test_wrong_login_preserves_backend_message_without_expiry_rerun(
+    api_mocks, monkeypatch
+):
+    """Invalid credentials stay on the login form instead of triggering a rerun loop."""
+    request, error = api_mocks
+    rerun = Mock()
+    monkeypatch.setattr(api_client.st, "rerun", rerun)
+    request.return_value = httpx.Response(
+        401,
+        json={"detail": "Invalid username or password."},
+        request=httpx.Request("POST", "http://test/auth/login"),
+    )
+    assert api_client.request_api("POST", "/auth/login") is None
+    error.assert_called_once_with("Invalid username or password.")
+    rerun.assert_not_called()
+
+
+def test_ollama_does_not_receive_backend_token(api_mocks):
+    """Ollama reachability may reuse the local pool but receives no bearer header."""
+    api_client.st.session_state["auth_token"] = "private-token"
+    client = api_client._get_http_client.return_value
+    client.get.return_value = httpx.Response(
+        200,
+        json={"models": []},
+        request=httpx.Request("GET", "http://localhost/api/tags"),
+    )
+    assert api_client.ollama_is_reachable()
+    assert "headers" not in client.get.call_args.kwargs
+    client.headers.update.assert_not_called()
 
 
 @pytest.mark.parametrize("status", [409, 422, 502, 503, 504])
