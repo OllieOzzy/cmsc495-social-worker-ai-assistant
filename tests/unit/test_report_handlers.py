@@ -5,6 +5,7 @@ tests cover routing, validation, application lifespan, and real persistence.
 """
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -14,6 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 from documentation_assistant.backend.api import reports
+from documentation_assistant.backend.schemas.auth import UserAccount
 from documentation_assistant.backend.schemas.reports import (
     DAPSections,
     EditReportRequest,
@@ -30,11 +32,17 @@ NOTES = "Synthetic student practiced a breathing exercise."
 def api_request(tmp_path):
     """Supply the application state that the handlers read from a request."""
     return SimpleNamespace(
+        user=UserAccount(
+            user_id=uuid4(),
+            username="user",
+            display_name="Test User",
+            created_at=datetime.now(UTC),
+        ),
         app=SimpleNamespace(
             state=SimpleNamespace(
                 database_path=tmp_path / "test.db", ollama_client=Mock()
             )
-        )
+        ),
     )
 
 
@@ -50,7 +58,9 @@ def test_generate_report_saves_valid_sections(monkeypatch, api_request):
     monkeypatch.setattr(reports, "run_in_threadpool", store)
 
     result = asyncio.run(
-        reports.generate_report(GenerateReportRequest(notes=NOTES), api_request)
+        reports.generate_report(
+            GenerateReportRequest(notes=NOTES), api_request, api_request.user
+        )
     )
 
     assert result.model_dump() == {
@@ -65,6 +75,7 @@ def test_generate_report_saves_valid_sections(monkeypatch, api_request):
         NOTES,
         sections,
         ReportMetadata(draft_source="ai_assisted"),
+        owner_id=api_request.user.user_id,
     )
 
 
@@ -107,7 +118,9 @@ def test_generate_report_maps_upstream_failure(
 
     with pytest.raises(HTTPException) as error:
         asyncio.run(
-            reports.generate_report(GenerateReportRequest(notes=NOTES), api_request)
+            reports.generate_report(
+                GenerateReportRequest(notes=NOTES), api_request, api_request.user
+            )
         )
 
     assert (error.value.status_code, error.value.detail) == (status, message)
@@ -126,8 +139,10 @@ def test_read_report_returns_saved_draft(monkeypatch, api_request):
     lookup = Mock(return_value=draft)
     monkeypatch.setattr(reports, "get_draft", lookup)
 
-    assert reports.read_report(draft.report_id, api_request) is draft
-    lookup.assert_called_once_with(api_request.app.state.database_path, draft.report_id)
+    assert reports.read_report(draft.report_id, api_request, api_request.user) is draft
+    lookup.assert_called_once_with(
+        api_request.app.state.database_path, draft.report_id, viewer=api_request.user
+    )
 
 
 def test_read_report_raises_404_for_missing_draft(monkeypatch, api_request):
@@ -135,7 +150,7 @@ def test_read_report_raises_404_for_missing_draft(monkeypatch, api_request):
     monkeypatch.setattr(reports, "get_draft", Mock(return_value=None))
 
     with pytest.raises(HTTPException) as error:
-        reports.read_report(uuid4(), api_request)
+        reports.read_report(uuid4(), api_request, api_request.user)
 
     assert error.value.status_code == 404
 
@@ -165,7 +180,11 @@ def test_regeneration_maps_final_storage_failures(
         data=NOTES, assessment="Not documented.", plan="Not documented."
     )
     current = StoredReportDraft(
-        report_id=uuid4(), notes="Original notes.", sections=sections, revision=3
+        report_id=uuid4(),
+        notes="Original notes.",
+        sections=sections,
+        revision=3,
+        owner_id=api_request.user.user_id,
     )
     payload = RegenerateReportRequest(
         revision=3, notes=NOTES, metadata=ReportMetadata(grade="8")
@@ -176,7 +195,11 @@ def test_regeneration_maps_final_storage_failures(
     monkeypatch.setattr(reports, "run_in_threadpool", storage)
 
     with pytest.raises(HTTPException) as error:
-        asyncio.run(reports.regenerate_report(current.report_id, payload, api_request))
+        asyncio.run(
+            reports.regenerate_report(
+                current.report_id, payload, api_request, api_request.user
+            )
+        )
 
     assert (error.value.status_code, error.value.detail) == (status, message)
     generate.assert_awaited_once_with(NOTES, api_request.app.state.ollama_client)
@@ -187,6 +210,7 @@ def test_regeneration_maps_final_storage_failures(
         api_request.app.state.database_path,
         current.report_id,
     )
+    assert lookup.kwargs == {"viewer": api_request.user}
     assert save.args == (
         reports.edit_draft,
         api_request.app.state.database_path,
@@ -195,4 +219,4 @@ def test_regeneration_maps_final_storage_failures(
             revision=3, notes=NOTES, sections=sections, metadata=payload.metadata
         ),
     )
-    assert save.kwargs == {"ai_assisted": True}
+    assert save.kwargs == {"ai_assisted": True, "owner_id": api_request.user.user_id}

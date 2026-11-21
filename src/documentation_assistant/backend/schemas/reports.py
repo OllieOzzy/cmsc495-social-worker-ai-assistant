@@ -199,9 +199,13 @@ class ReportRevisionRequest(BaseModel):
 
 
 class ApproveReportRequest(ReportRevisionRequest):
-    """Record who explicitly approves the saved revision."""
+    """Approve a revision; reviewer identity comes from the authenticated admin."""
 
-    approved_by: MetadataText
+    approved_by: MetadataText | None = Field(
+        default=None,
+        description="Legacy display field, ignored. The signed-in admin is recorded.",
+        deprecated=True,
+    )
 
 
 class DraftUpdateRequest(ReportRevisionRequest):
