@@ -47,6 +47,7 @@ flowchart LR
     subgraph UI["Streamlit frontend"]
         Start["Open the app"]
         Login["Sign in<br/>Verify session before rendering reports"]
+        ManageUsers["Manage users · Admin only<br/>List, create, activate, and deactivate"]
         Logout["Sign out or session expires<br/>Clear reports, forms, filters, and token"]
         Status["Backend Status and AI Status<br/>Check on startup, every 60 seconds, and on click"]
         Offline["Backend Status turns red<br/>Connection error appears below the buttons"]
@@ -68,6 +69,7 @@ flowchart LR
 
         Start --> Login
         Login --> Status
+        Login -->|"Admin"| ManageUsers
         Start --> Menu
         Login --> Entry
         Login --> History
@@ -102,6 +104,7 @@ flowchart LR
     subgraph API["FastAPI endpoints"]
         HealthAPI["GET /health"]
         AuthAPI["POST /auth/login<br/>GET /auth/me<br/>POST /auth/logout"]
+        UsersAPI["GET/POST /users<br/>PATCH /users/{user_id}"]
         ListAPI["GET /reports"]
         ManualAPI["POST /reports/manual"]
         GenerateAPI["POST /reports/generate"]
@@ -118,6 +121,7 @@ flowchart LR
 
     Worker --> Start
     Login -.-> AuthAPI
+    ManageUsers -.-> UsersAPI
     Logout -.-> AuthAPI
     Status -.->|"Backend check"| HealthAPI
     Status -.->|"AI reachability check"| Ollama
@@ -139,7 +143,7 @@ flowchart LR
     classDef action fill:#FEF3C7,stroke:#B45309,color:#78350F
     classDef approved fill:#DCFCE7,stroke:#15803D,color:#14532D
 
-    class Start,Login,Logout,Menu,Entry,History navigation
+    class Start,Login,Logout,ManageUsers,Menu,Entry,History navigation
     class Manual,Open,Review,Edit report
     class Status,Generate,Regenerate,Ollama service
     class Offline,Delete error
@@ -284,6 +288,26 @@ to login. Role changes also clear cached reports before rendering again.
 Tokens are sent on individual FastAPI requests, never stored in a shared
 HTTP client's default headers or sent to Ollama.
 
+### Manage Users
+
+Administrators have a **Manage users** button in the sidebar. The screen lists
+accounts in pages of 25, with username, display name, role, and activation status.
+Use **Previous users** and **Next users** to browse; **Back to reports** returns
+to the report screens.
+
+Expand **Create account**, enter a username and display name, choose the role,
+and enter and confirm a password of 15–1,024 characters. The default role is
+`user`. Select **Create account**; the new user can sign in immediately. Submitted
+password fields are cleared and the password is stored only as an Argon2id hash.
+
+Under **Account status**, choose an account, set **Account active**, and select
+**Save account status**. Deactivation revokes every existing session and keeps
+the account's reports. Reactivation requires a fresh login. Your own status
+controls are disabled, and the backend also protects the last active admin.
+Regular users cannot open this screen or call the management endpoints.
+
+The CLI remains available for the first administrator and demo setup.
+
 ### Service Status
 
 Streamlit checks FastAPI and Ollama when the report page opens and every
@@ -341,6 +365,7 @@ responses are mocked, so both suites run without a model download.
 | Login and logout | Real credential verification, rejected passwords, server session revocation, and clearing private browser state. |
 | Account boundaries | Switching users cannot retain reports, filters, or PDF state; admin demotion clears previously visible reports. |
 | Role controls and expiry | Only admins see approval/reopening controls, other owners' reports are read-only for admins, and expired or revoked sessions return to login. |
+| User management | Admin GUI creation, immediate new-user login, activation changes, session revocation, reactivation, and disabled self-deactivation controls. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
 | Backend reconnection | An unverifiable session hides report screens; retrying session verification restores access after recovery. |
 | Validation errors | Invalid session times display the backend explanation, retain pending edits, and leave the saved report unchanged. |

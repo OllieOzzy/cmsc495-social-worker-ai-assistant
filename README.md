@@ -84,6 +84,13 @@ with synthetic records. Use `dap-assistant create-user` to add a regular
 account, or append `--role admin` for an administrator. New non-demo accounts
 require passwords of 15–1,024 characters.
 
+Administrators can also open **Manage users** in the sidebar to list accounts,
+create regular or administrator accounts, and activate or deactivate users.
+Deactivation revokes existing sessions and preserves the user's reports.
+Reactivation requires a fresh login. Self-deactivation is blocked, and the
+database protects the last active administrator from concurrent deactivation.
+Keep the CLI for creating the first administrator and initial demo setup.
+
 Account setup and the launcher must use the same working directory and
 `DAP_DB_PATH`. Accounts, session hashes, and reports share the SQLite file.
 Existing reports remain unassigned and are visible only to administrators
@@ -134,7 +141,9 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
 │       │   │   ├── 🐍 __init__.py
 │       │   │   ├── 🐍 auth.py
 │       │   │   ├── 🐍 health.py
-│       │   │   └── 🐍 reports.py
+│       │   │   ├── 🐍 reports.py
+│       │   │   ├── 🐍 users.py
+│       │   │   └── 🐍 validation.py
 │       │   ├── 📁 auth/
 │       │   │   ├── 🐍 __init__.py
 │       │   │   ├── 🐍 cli.py
@@ -171,7 +180,8 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
 │           ├── 🐍 auth_state.py
 │           ├── 🐍 forms.py
 │           ├── 🐍 reports.py
-│           └── 🐍 sidebar.py
+│           ├── 🐍 sidebar.py
+│           └── 🐍 users.py
 └── 📁 tests/
     ├── 🐍 __init__.py
     ├── 🐍 auth_helpers.py
@@ -180,6 +190,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_account_setup.py
     │   ├── 🧪 test_auth_api.py
     │   ├── 🧪 test_frontend_auth.py
+    │   ├── 🧪 test_frontend_user_management.py
     │   ├── 🧪 test_frontend_recovery.py
     │   ├── 🧪 test_frontend_reports.py
     │   ├── 🧪 test_health_api.py
@@ -187,6 +198,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_report_ownership.py
     │   ├── 🧪 test_report_permissions.py
     │   ├── 🧪 test_reports_api.py
+    │   ├── 🧪 test_user_management_api.py
     │   └── 🧪 test_users_db.py
     ├── 📁 llm/
     │   ├── 🧪 test_dap_quality.py
@@ -203,6 +215,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
         ├── 🧪 test_frontend_forms.py
         ├── 🧪 test_frontend_reports.py
         ├── 🧪 test_frontend_sidebar.py
+        ├── 🧪 test_frontend_users.py
         ├── 🧪 test_health_handler.py
         ├── 🧪 test_launcher.py
         ├── 🧪 test_ollama.py

@@ -19,6 +19,11 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
   and clearing of private state after logout, expiry, or a revoked session.
 - Authentication and permission regression tests and authenticated
   installed-wheel validation.
+- Administrator-only user management in Streamlit and FastAPI for listing
+  accounts, creating users, and changing activation status. Deactivation
+  revokes all sessions while preserving reports and approval records.
+- Protection against self-deactivation and removal of the last active
+  administrator, including concurrent status changes.
 
 ### Changed
 

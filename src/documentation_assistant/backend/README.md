@@ -59,6 +59,7 @@ flowchart LR
         App["Application entry point<br/>main.py"]
         Reports["Report router<br/>api/reports.py"]
         AuthRouter["Authentication router<br/>api/auth.py"]
+        UserRouter["User management router<br/>GET/POST /users · PATCH /users/{user_id}"]
         Auth["Account and session services<br/>Argon2 verification and role checks"]
         AuthRoutes["POST /auth/login · GET /auth/me<br/>POST /auth/logout"]
         Schemas["Pydantic validation<br/>schemas/reports.py"]
@@ -84,6 +85,8 @@ flowchart LR
         App --> Health
         App --> Reports
         App --> AuthRouter
+        App --> UserRouter
+        UserRouter -->|"Require administrator"| Auth
         AuthRouter --> AuthRoutes
         AuthRoutes --> Auth
         Reports -->|"Require signed-in user or administrator"| Auth
@@ -123,7 +126,7 @@ flowchart LR
     classDef export fill:#FEF3C7,stroke:#B45309,color:#78350F
 
     class UI frontend
-    class App,Docs,Reports,AuthRouter,Auth,AuthRoutes,Schemas,Health,Manual,Generate,Read,Edit,Regenerate,Review backend
+    class App,Docs,Reports,AuthRouter,UserRouter,Auth,AuthRoutes,Schemas,Health,Manual,Generate,Read,Edit,Regenerate,Review backend
     class LLM,Prompt,Ollama ai
     class Store,DB storage
     class Download,PDF,Template export
@@ -276,6 +279,31 @@ another user's report, including its PDF, without exposing whether it exists.
 Administrator-only actions return `403` for regular users. Administrators also
 receive `403` if they attempt to edit or delete content owned by someone else.
 
+## User Management
+
+Administrators can use Streamlit's **Manage users** screen or these endpoints:
+
+- `GET /users?limit=25&offset=0` lists public account fields, including inactive
+  accounts, alphabetically by username. Pages allow 1–100 accounts.
+- `POST /users` creates an account with `username`, `display_name`, `password`,
+  and optional `role` (`user` by default, or `admin`). It uses the same
+  normalization, Argon2id hashing, and 15–1,024-character password policy as
+  the CLI. Duplicate usernames return `409` without replacing credentials.
+- `PATCH /users/{user_id}` accepts `{"is_active": false}` to deactivate, or
+  `{"is_active": true}` to reactivate. It does not accept role or password
+  changes. A missing account returns `404`.
+
+All three endpoints require administrator access. Account responses exclude
+password hashes and use `Cache-Control: no-store`. Validation responses do
+not echo submitted passwords. Deactivation deletes every session for that
+account while preserving its reports and recorded approvals. Reactivation
+requires a new login; old tokens remain invalid.
+
+An administrator cannot deactivate their own account (`409`). The storage
+transaction also prevents deactivating the last active administrator, even
+when requests run concurrently. Keep `create-user --role admin` for initial
+setup; GUI management requires an administrator to already be signed in.
+
 ## Start the Server
 
 ```shell
@@ -305,6 +333,9 @@ caching sensitive report content. PDF downloads use the same protection.
 | `POST /auth/login` | Exchanges account credentials for an expiring bearer token. |
 | `GET /auth/me` | Retrieves the authenticated account's public identity and role. |
 | `POST /auth/logout` | Revokes the supplied session token. |
+| `GET /users` | Administrator only: lists a bounded page of public account identities. |
+| `POST /users` | Administrator only: creates a regular or administrator account. |
+| `PATCH /users/{user_id}` | Administrator only: activates or deactivates an account. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
@@ -498,6 +529,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Integration: HTTP client lifecycle | Reuse across generation and regeneration, recovery after a connection failure, and cleanup at shutdown. |
 | Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
 | Integration: accounts and sessions | Account provisioning, credential checks, token storage, logout, expiry, restart persistence, disabled accounts, and login throttling. |
+| Integration: user management | Admin-only account creation and listing, activation, session revocation, password privacy, and concurrent last-admin protection. |
 | Integration: ownership storage | Scoped reads, filtering before pagination, preserved ownership through review actions, legacy upgrades, explicit assignment, and account foreign keys. |
 | Integration: report permissions | Real user sessions, cross-user isolation, owner-only writes, admin review, authenticated reviewer identity, revoked sessions, and ownership changes during regeneration. |
 | Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |
