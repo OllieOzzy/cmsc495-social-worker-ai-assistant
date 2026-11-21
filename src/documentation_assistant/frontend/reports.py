@@ -8,6 +8,7 @@ import streamlit as st
 from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 
 from .api_client import request_api
+from .auth_state import is_admin, owns_report
 from .forms import color_expander, session_details
 
 DAP_FIELDS = {
@@ -170,6 +171,15 @@ def review_report(report):
     report_id = report["report_id"]
     revision = report["revision"]
     approved = report["status"] == "approved"
+    admin = is_admin()
+    owned = owns_report(report)
+    if not (owned or admin):
+        reset_report_entry()
+        st.session_state["report_notice"] = (
+            "That report is no longer available to this account."
+        )
+        st.rerun()
+    editable = owned and not approved
     st.caption(f"{report['status'].capitalize()} · Revision {revision}")
     if approved and report["approved_by"] and report["approved_at"]:
         approval_time = datetime.fromisoformat(report["approved_at"])
@@ -193,27 +203,29 @@ def review_report(report):
     form_version = st.session_state.get("edit_form_version", 0)
     form_key = f"edit_{report_id}_{revision}_{form_version}"
     with draft, st.form(form_key, enter_to_submit=False):
-        metadata = session_details(saved_metadata, form_key=form_key, disabled=approved)
+        metadata = session_details(
+            saved_metadata, form_key=form_key, disabled=not editable
+        )
         sections = {
             field: st.text_area(
-                label, value=report["sections"][field], disabled=approved
+                label, value=report["sections"][field], disabled=not editable
             )
             for field, label in DAP_FIELDS.items()
         }
         discard = False
         with st.container(horizontal=True, gap="small"):
             back = st.form_submit_button(
-                "Back to notes", icon=":material/arrow_back:", disabled=approved
+                "Back to notes", icon=":material/arrow_back:", disabled=not editable
             )
             save = st.form_submit_button(
-                "Save draft", icon=":material/save:", disabled=approved
+                "Save draft", icon=":material/save:", disabled=not editable
             )
-            if not approved:
+            if editable:
                 discard = st.form_submit_button(
                     "Discard changes", icon=":material/undo:"
                 )
         approve = delete = reopen = False
-        if approved:
+        if approved and admin:
             reopen_key = f"{form_key}_reopen"
             color_expander(
                 reopen_key,
@@ -238,7 +250,7 @@ def review_report(report):
                 reopen = st.form_submit_button(
                     "Reopen as draft", icon=":material/history:"
                 )
-        else:
+        if not approved and admin:
             approval_key = f"{form_key}_approval"
             color_expander(
                 approval_key, "#17603c", body_color="rgba(34, 163, 102, 0.12)"
@@ -251,10 +263,11 @@ def review_report(report):
                 "}</style>"
             )
             with st.expander("Approval", key=approval_key, icon=":material/verified:"):
-                approver = st.text_input("Approver name", max_chars=200).strip()
+                st.caption("Approval records your signed-in administrator account.")
                 approve = st.form_submit_button(
                     "Approve saved draft", icon=":material/check_circle:"
                 )
+        if editable:
             delete_key = f"{form_key}_delete"
             color_expander(delete_key, "#862b24", body_color="rgba(223, 83, 83, 0.12)")
             st.html(
@@ -321,13 +334,10 @@ def review_report(report):
         if sections != report["sections"] or metadata != saved_fields:
             st.error("Save your changes before approving this report.")
             return
-        if not approver:
-            st.error("Enter the approver's name.")
-            return
         updated_report = request_api(
             "POST",
             f"/reports/{report_id}/approve",
-            payload={"revision": revision, "approved_by": approver},
+            payload={"revision": revision},
         )
         message = "Report approved."
     elif reopen:
