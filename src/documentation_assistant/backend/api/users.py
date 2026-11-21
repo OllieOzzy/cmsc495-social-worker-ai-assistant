@@ -16,10 +16,12 @@ from documentation_assistant.backend.db.users import (
     DuplicateUsername,
     create_user,
     list_users,
+    reset_user_password,
     set_user_active,
 )
 from documentation_assistant.backend.schemas.auth import (
     CreateUserRequest,
+    ResetPasswordRequest,
     UserAccount,
     UserStatusRequest,
 )
@@ -89,6 +91,33 @@ def change_user_status(
         )
     except AccountStatusConflict as exc:
         raise HTTPException(409, str(exc)) from exc
+    if account is None:
+        raise HTTPException(404, "Account not found.")
+    return account
+
+
+@router.post("/{user_id}/reset-password", response_model=UserAccount)
+def reset_account_password(
+    user_id: UUID,
+    payload: ResetPasswordRequest,
+    request: Request,
+    response: Response,
+    admin: AdminUser,
+) -> UserAccount:
+    """Reset an account password and invalidate every existing session, including self."""
+    response.headers["Cache-Control"] = "no-store"
+    password = payload.password.get_secret_value()
+    try:
+        validate_new_password(password)
+    except ValueError as exc:
+        raise HTTPException(
+            422, str(exc), headers={"Cache-Control": "no-store"}
+        ) from exc
+    account = reset_user_password(
+        request.app.state.database_path,
+        user_id,
+        password_hash=hash_password(password),
+    )
     if account is None:
         raise HTTPException(404, "Account not found.")
     return account
