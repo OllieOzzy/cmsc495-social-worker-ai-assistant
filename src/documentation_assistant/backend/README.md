@@ -156,9 +156,9 @@ python -m pip install -r requirements.txt
 
 ## Local Account Setup
 
-Account storage and setup commands are available on the authentication branch.
-Login, report ownership, and administrator-only approval are still being
-implemented. Creating accounts alone does not protect the report endpoints.
+Account setup and backend login are available on the authentication branch.
+Report ownership, administrator-only approval, and the frontend login screen
+are still being implemented. Report endpoints are not protected yet.
 
 Install the project in editable mode to make the `dap-assistant` command
 available in your active virtual environment:
@@ -200,6 +200,33 @@ to the working directory, or the location set by `DAP_DB_PATH`. Run setup and
 the backend with the same working directory and database setting. Running
 `dap-assistant` without a subcommand still starts the backend and frontend.
 
+### Backend Login and Sessions
+
+After creating an account and starting FastAPI, open `/docs` and execute
+`POST /auth/login` with the account's credentials:
+
+```json
+{"username": "user", "password": "password1234"}
+```
+
+Copy the returned `access_token`, click **Authorize** in Swagger UI, and paste
+the token into the bearer-token field. Execute `GET /auth/me` to see the
+signed-in account. Execute `POST /auth/logout` to revoke that session; using
+the same token afterward returns `401`. Signing out leaves other sessions
+for the account active.
+
+Sessions expire eight hours after login, including across backend restarts.
+Using a session does not extend its lifetime. SQLite stores only token hashes;
+keep the returned token private. The backend checks account activity and the
+current role on authenticated requests.
+
+Five unsuccessful attempts for the same normalized username within five
+minutes cause further attempts to return `429` with a `Retry-After` header.
+The counter persists across backend restarts and resets after a successful
+login or when the five-minute window expires. Unknown usernames receive the
+same credential error and attempt limit. This is a local-app safeguard, not
+a replacement for deployment-level rate limiting on a public server.
+
 ## Start the Server
 
 ```shell
@@ -223,6 +250,9 @@ time you start FastAPI.
 | [GET /health](http://127.0.0.1:8000/health) | Confirms the backend is responding. |
 | [GET /docs](http://127.0.0.1:8000/docs) | Interactive API documentation. |
 | [GET /openapi.json](http://127.0.0.1:8000/openapi.json) | Machine-readable API schema. |
+| `POST /auth/login` | Exchanges account credentials for an expiring bearer token. |
+| `GET /auth/me` | Retrieves the authenticated account's public identity and role. |
+| `POST /auth/logout` | Revokes the supplied session token. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
@@ -404,6 +434,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Test group | Coverage |
 | --- | --- |
 | Unit: schemas | Notes and DAP validation, local 24-hour session times, partial time updates, and duration calculations. |
+| Unit: authentication | Password hashing and verification, account validation, command dispatch, and login decisions. |
 | Unit: storage and connections | Saving and mapping reports, missing records, connection setup, and transaction cleanup. |
 | Unit: API handlers and Ollama client | Health responses, AI response validation and failures, and HTTP error mapping when saving regenerated reports. |
 | Unit: PDF renderer | Field rendering, draft and approval markings, and continuation pages. |
@@ -412,6 +443,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Integration: AI generation | Mocked generation and regeneration through FastAPI, including edits or deletion while generation is in progress. |
 | Integration: HTTP client lifecycle | Reuse across generation and regeneration, recovery after a connection failure, and cleanup at shutdown. |
 | Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
+| Integration: accounts and sessions | Account provisioning, credential checks, token storage, logout, expiry, restart persistence, disabled accounts, and login throttling. |
 | Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |
 
 The database unit tests cover the existing-column path; the compatibility
