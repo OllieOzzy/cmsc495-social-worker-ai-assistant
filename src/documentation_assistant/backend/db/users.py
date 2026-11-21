@@ -1,4 +1,4 @@
-"""Create and retrieve accounts in the application's existing SQLite database."""
+"""Manage account identity and activation in the existing SQLite database."""
 
 import sqlite3
 from datetime import UTC, datetime
@@ -6,11 +6,83 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from documentation_assistant.backend.db.connection import connect
-from documentation_assistant.backend.schemas.auth import StoredUserAccount, UserRole
+from documentation_assistant.backend.schemas.auth import (
+    StoredUserAccount,
+    UserAccount,
+    UserRole,
+)
 
 
 class DuplicateUsername(ValueError):
     """An account already uses the normalized username."""
+
+
+class AccountStatusConflict(ValueError):
+    """An activation change would remove the last active administrator."""
+
+
+def list_users(path: Path, *, limit: int = 25, offset: int = 0) -> list[UserAccount]:
+    """Return a bounded, alphabetical page without reading any password hashes."""
+    if not 1 <= limit <= 100 or offset < 0:
+        raise ValueError("Invalid account page bounds.")
+    with connect(path) as connection:
+        rows = connection.execute(
+            """SELECT user_id, username, display_name, role, is_active, created_at
+               FROM users ORDER BY username LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+    return [_read_public_user(row) for row in rows]
+
+
+def set_user_active(
+    path: Path, user_id: UUID, *, is_active: bool
+) -> UserAccount | None:
+    """Change activation atomically and revoke sessions when disabling an account.
+
+    Hold the write lock while counting administrators so concurrent requests
+    cannot disable the last two at once. Reports and approval history remain.
+    Reactivation never restores old sessions; the user must sign in again.
+    """
+    with connect(path) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            """SELECT user_id, username, display_name, role, is_active, created_at
+               FROM users WHERE user_id = ?""",
+            (str(user_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        account = _read_public_user(row)
+        if not is_active and account.is_active and account.role == "admin":
+            count = connection.execute(
+                "SELECT count(*) FROM users WHERE role = 'admin' AND is_active = 1"
+            ).fetchone()[0]
+            if count <= 1:
+                raise AccountStatusConflict(
+                    "The last active administrator cannot be deactivated."
+                )
+        connection.execute(
+            "UPDATE users SET is_active = ? WHERE user_id = ?",
+            (int(is_active), str(user_id)),
+        )
+        if not is_active:
+            connection.execute(
+                "DELETE FROM user_sessions WHERE user_id = ?", (str(user_id),)
+            )
+    return account.model_copy(update={"is_active": is_active})
+
+
+def _read_public_user(row: tuple) -> UserAccount:
+    """Map identity-only columns without constructing a password-bearing model."""
+    user_id, username, display_name, role, is_active, created_at = row
+    return UserAccount(
+        user_id=user_id,
+        username=username,
+        display_name=display_name,
+        role=role,
+        is_active=is_active,
+        created_at=created_at,
+    )
 
 
 def create_user(

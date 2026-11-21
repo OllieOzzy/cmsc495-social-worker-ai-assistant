@@ -38,7 +38,7 @@ class UserAccount(BaseModel):
 class StoredUserAccount(UserAccount):
     """Keep the encoded password hash internal to account and login operations.
 
-    Hashing and verification belong to the password service added separately.
+    Hashing and verification belong to the password service.
     Exclusion prevents accidental exposure when this model is serialized.
     """
 
@@ -65,3 +65,22 @@ class LoginResponse(BaseModel):
     token_type: Literal["bearer"] = "bearer"
     expires_at: datetime
     user: UserAccount
+
+
+class CreateUserRequest(BaseModel):
+    """Accept administrator-provided account details without exposing passwords."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: Username
+    display_name: _AccountText
+    password: SecretStr = Field(repr=False)
+    role: UserRole = "user"
+
+
+class UserStatusRequest(BaseModel):
+    """Change activation only; roles and credentials are separate operations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_active: bool = Field(strict=True)

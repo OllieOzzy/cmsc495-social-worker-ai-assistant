@@ -99,3 +99,26 @@ def test_unrelated_integrity_failure_is_not_reported_as_duplicate_username(datab
             password_hash="synthetic-encoded-hash",
         )
     assert caught.value is failure
+
+
+def test_list_users_maps_public_rows_without_selecting_password_hashes(database):
+    """The management list must not load or serialize credential material."""
+    user_id = uuid4()
+    database.execute.return_value.fetchall.return_value = [
+        (str(user_id), "user", "User", "user", 0, datetime.now(UTC).isoformat())
+    ]
+    result = users.list_users(Path("unused.db"), limit=10, offset=20)
+    assert result[0].user_id == user_id
+    assert result[0].is_active is False
+    assert "password_hash" not in result[0].model_dump()
+    sql, parameters = database.execute.call_args.args
+    assert "password_hash" not in sql
+    assert parameters == (10, 20)
+
+
+@pytest.mark.parametrize("limit, offset", [(0, 0), (101, 0), (25, -1)])
+def test_list_users_rejects_unbounded_storage_queries(database, limit, offset):
+    """Even internal callers must supply a bounded account page."""
+    with pytest.raises(ValueError, match="page bounds"):
+        users.list_users(Path("unused.db"), limit=limit, offset=offset)
+    database.execute.assert_not_called()
