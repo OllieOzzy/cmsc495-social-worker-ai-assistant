@@ -10,11 +10,11 @@ from unittest.mock import Mock
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 from streamlit.testing.v1 import AppTest
 
 from documentation_assistant.backend.main import create_app
 from documentation_assistant.frontend import api_client, reports
+from tests.auth_helpers import AuthenticatedTestClient as TestClient
 
 APP_PATH = Path(reports.__file__).with_name("app.py")
 

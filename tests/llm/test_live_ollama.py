@@ -7,9 +7,9 @@ The test uses temporary SQLite storage and does not start or stop Ollama.
 import os
 
 import pytest
-from fastapi.testclient import TestClient
 
 from documentation_assistant.backend.main import create_app
+from tests.auth_helpers import AuthenticatedTestClient as TestClient
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_LIVE_OLLAMA") != "1",
