@@ -9,12 +9,11 @@ AI-powered documentation assistant for school social workers, developed as a UMG
 
 ## Quick Start
 
-[Download and Watch the 1.0.0 Demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.0.0/demo.mp4)
+[Download and Watch the 1.1.0 Demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.1.0/demo110.mp4)
 
 Install Python 3.12, then download `dap_app-1.1.0-py3-none-any.whl` from the
 **Assets** section of the [GitHub release](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases).
-Save the wheel in a folder you want to use for the app and open a terminal in
-that folder.
+Save the wheel in a folder you want to use for the app and open a terminal in that folder.
 
 ### Windows PowerShell
 
