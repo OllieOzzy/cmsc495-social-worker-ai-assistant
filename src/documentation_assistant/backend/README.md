@@ -293,7 +293,18 @@ Administrators can use Streamlit's **Manage users** screen or these endpoints:
   `{"is_active": true}` to reactivate. It does not accept role or password
   changes. A missing account returns `404`.
 
-All three endpoints require administrator access. Account responses exclude
+`POST /users/{user_id}/reset-password` accepts a replacement `password` of
+15–1,024 characters. It replaces the Argon2id hash, revokes every session, and
+clears the account's failed-login window in one transaction. Role, activation,
+identity, reports, and approval records are preserved. Inactive accounts stay
+inactive. Resetting your own admin password requires a fresh login too.
+
+Invalid passwords return `422` without changing credentials or sessions; a
+missing target returns `404`. Session creation rechecks the verified hash
+and activation under the write lock, so a login started before a reset or
+deactivation cannot issue a usable token afterward.
+
+All user-management endpoints require administrator access. Account responses exclude
 password hashes and use `Cache-Control: no-store`. Validation responses do
 not echo submitted passwords. Deactivation deletes every session for that
 account while preserving its reports and recorded approvals. Reactivation
@@ -336,6 +347,7 @@ caching sensitive report content. PDF downloads use the same protection.
 | `GET /users` | Administrator only: lists a bounded page of public account identities. |
 | `POST /users` | Administrator only: creates a regular or administrator account. |
 | `PATCH /users/{user_id}` | Administrator only: activates or deactivates an account. |
+| `POST /users/{user_id}/reset-password` | Administrator only: replaces a password and revokes all account sessions. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
@@ -530,6 +542,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
 | Integration: accounts and sessions | Account provisioning, credential checks, token storage, logout, expiry, restart persistence, disabled accounts, and login throttling. |
 | Integration: user management | Admin-only account creation and listing, activation, session revocation, password privacy, and concurrent last-admin protection. |
+| Integration: password reset | Admin access, validation, session revocation, self-reset, preserved reports, atomic rollback, throttle recovery, and in-flight login protection. |
 | Integration: ownership storage | Scoped reads, filtering before pagination, preserved ownership through review actions, legacy upgrades, explicit assignment, and account foreign keys. |
 | Integration: report permissions | Real user sessions, cross-user isolation, owner-only writes, admin review, authenticated reviewer identity, revoked sessions, and ownership changes during regeneration. |
 | Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |

@@ -24,6 +24,11 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
   revokes all sessions while preserving reports and approval records.
 - Protection against self-deactivation and removal of the last active
   administrator, including concurrent status changes.
+- Administrator password reset through Manage users and
+  `POST /users/{user_id}/reset-password`, with matching password confirmation in
+  the UI, session revocation, and preservation of account details and reports.
+- A credential recheck when saving login sessions prevents an in-flight login
+  from issuing a token after its password is reset or its account is deactivated.
 
 ### Changed
 

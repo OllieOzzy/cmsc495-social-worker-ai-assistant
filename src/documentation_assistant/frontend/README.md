@@ -308,6 +308,13 @@ Regular users cannot open this screen or call the management endpoints.
 
 The CLI remains available for the first administrator and demo setup.
 
+To reset a forgotten password, select the account under **Account status** and
+expand **Reset password**. Enter and confirm a new password of 15–1,024
+characters, acknowledge that every session will be signed out, and select
+**Reset password**. The account's role, activation status, and reports stay
+the same. Inactive accounts remain inactive. Resetting your own admin password
+returns you to the login screen; sign in with the new password.
+
 ### Service Status
 
 Streamlit checks FastAPI and Ollama when the report page opens and every
@@ -366,6 +373,7 @@ responses are mocked, so both suites run without a model download.
 | Account boundaries | Switching users cannot retain reports, filters, or PDF state; admin demotion clears previously visible reports. |
 | Role controls and expiry | Only admins see approval/reopening controls, other owners' reports are read-only for admins, and expired or revoked sessions return to login. |
 | User management | Admin GUI creation, immediate new-user login, activation changes, session revocation, reactivation, and disabled self-deactivation controls. |
+| Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
 | Backend reconnection | An unverifiable session hides report screens; retrying session verification restores access after recovery. |
 | Validation errors | Invalid session times display the backend explanation, retain pending edits, and leave the saved report unchanged. |

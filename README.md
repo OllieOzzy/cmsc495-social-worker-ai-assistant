@@ -91,6 +91,11 @@ Reactivation requires a fresh login. Self-deactivation is blocked, and the
 database protects the last active administrator from concurrent deactivation.
 Keep the CLI for creating the first administrator and initial demo setup.
 
+For forgotten passwords, an administrator can select the account in **Manage
+users**, expand **Reset password**, enter and confirm a replacement, and confirm
+that all sessions will be signed out. Resetting your own admin password returns
+you to login. Existing account details and reports are preserved.
+
 Account setup and the launcher must use the same working directory and
 `DAP_DB_PATH`. Accounts, session hashes, and reports share the SQLite file.
 Existing reports remain unassigned and are visible only to administrators
@@ -195,6 +200,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_frontend_reports.py
     │   ├── 🧪 test_health_api.py
     │   ├── 🧪 test_report_pdf.py
+    │   ├── 🧪 test_password_reset_api.py
     │   ├── 🧪 test_report_ownership.py
     │   ├── 🧪 test_report_permissions.py
     │   ├── 🧪 test_reports_api.py
