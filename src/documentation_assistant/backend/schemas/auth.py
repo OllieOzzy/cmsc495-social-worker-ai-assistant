@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
 
 UserRole = Literal["user", "admin"]
 Username = Annotated[
@@ -45,3 +45,23 @@ class StoredUserAccount(UserAccount):
     password_hash: Annotated[str, StringConstraints(min_length=1)] = Field(
         repr=False, exclude=True
     )
+
+
+class LoginRequest(BaseModel):
+    """Accept credentials without exposing the password in the model's repr."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: Username
+    # Check password length during authentication, avoiding validation errors
+    # that would echo a rejected password into FastAPI's error response.
+    password: SecretStr = Field(repr=False)
+
+
+class LoginResponse(BaseModel):
+    """Return a bearer token once, with its expiry and public account identity."""
+
+    access_token: str = Field(repr=False)
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: datetime
+    user: UserAccount
