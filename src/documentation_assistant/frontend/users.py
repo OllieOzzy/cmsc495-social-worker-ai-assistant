@@ -3,7 +3,7 @@
 import streamlit as st
 
 from .api_client import request_api
-from .auth_state import is_admin
+from .auth_state import clear_session, is_admin
 
 _PAGE_SIZE = 25
 
@@ -150,3 +150,59 @@ def _account_status_form(users: list[dict]) -> None:
                 f"Updated account: {updated['username']}."
             )
             st.rerun()
+    _password_reset_form(account)
+
+
+def _password_reset_form(account: dict) -> None:
+    """Require a confirmed replacement password and acknowledgement of session revocation."""
+    user_id = account["user_id"]
+    password_key = f"reset_password_{user_id}"
+    confirmation_key = f"reset_password_confirmation_{user_id}"
+    with (
+        st.expander("Reset password"),
+        st.form(f"reset_password_form_{user_id}", clear_on_submit=True),
+    ):
+        password = st.text_input(
+            "New password", type="password", max_chars=1024, key=password_key
+        )
+        confirmation = st.text_input(
+            "Confirm new password",
+            type="password",
+            max_chars=1024,
+            key=confirmation_key,
+        )
+        acknowledged = st.checkbox(
+            "I understand this signs the user out of all sessions"
+        )
+        st.caption(
+            "Use 15–1,024 characters. This does not change the account's role or activation status."
+        )
+        if user_id == st.session_state["auth_user"]["user_id"]:
+            st.caption("Resetting your own password will sign you out too.")
+        submitted = st.form_submit_button(
+            "Reset password", icon=":material/lock_reset:"
+        )
+    if not submitted:
+        return
+    st.session_state.pop(password_key, None)
+    st.session_state.pop(confirmation_key, None)
+    if not acknowledged:
+        st.error("Confirm that you understand all sessions will be signed out.")
+        return
+    if password != confirmation:
+        st.error("Passwords do not match.")
+        return
+    if not 15 <= len(password) <= 1024:
+        st.error("New account passwords must contain 15 to 1024 characters.")
+        return
+    updated = request_api(
+        "POST", f"/users/{user_id}/reset-password", payload={"password": password}
+    )
+    if updated is not None:
+        if user_id == st.session_state["auth_user"]["user_id"]:
+            clear_session("Password reset. Please sign in with your new password.")
+        else:
+            st.session_state["user_management_notice"] = (
+                f"Password reset for {updated['username']}. Existing sessions were signed out."
+            )
+        st.rerun(scope="app")

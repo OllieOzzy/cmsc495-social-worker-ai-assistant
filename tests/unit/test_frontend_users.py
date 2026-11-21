@@ -122,8 +122,14 @@ def test_creation_sends_chosen_role_and_clears_credentials(ui, api, succeeds):
 def test_own_status_controls_are_disabled(ui, api):
     """An administrator cannot accidentally disable the account they are using."""
     users._account_status_form([{**ACCOUNT, "user_id": "admin-id", "role": "admin"}])
-    assert ui.checkbox.call_args.kwargs["disabled"]
-    assert ui.form_submit_button.call_args.kwargs["disabled"]
+    assert next(
+        call for call in ui.checkbox.call_args_list if call.args[0] == "Account active"
+    ).kwargs["disabled"]
+    assert next(
+        call
+        for call in ui.form_submit_button.call_args_list
+        if call.args[0] == "Save account status"
+    ).kwargs["disabled"]
     api.assert_not_called()
 
 
@@ -154,3 +160,52 @@ def test_account_pagination_requests_one_extra_row(ui, api, label, offset, expec
     api.assert_called_once_with("GET", "/users", params={"limit": 26, "offset": offset})
     assert len(ui.dataframe.call_args.args[0]) == 25
     assert ui.session_state["users_offset"] == expected
+
+
+@pytest.mark.parametrize(
+    "acknowledged, passwords, message",
+    [
+        (
+            False,
+            [PASSWORD, PASSWORD],
+            "Confirm that you understand all sessions will be signed out.",
+        ),
+        (True, [PASSWORD, "Different"], "Passwords do not match."),
+        (
+            True,
+            ["short", "short"],
+            "New account passwords must contain 15 to 1024 characters.",
+        ),
+    ],
+)
+def test_reset_validates_confirmation(ui, api, acknowledged, passwords, message):
+    """Require acknowledgement and matching policy-compliant passwords before sending."""
+    ui.form_submit_button.return_value = True
+    ui.checkbox.return_value = acknowledged
+    ui.text_input.side_effect = passwords
+    ui.session_state["reset_password_other-id"] = PASSWORD
+    users._password_reset_form(ACCOUNT)
+    api.assert_not_called()
+    ui.error.assert_called_once_with(message)
+    assert "reset_password_other-id" not in ui.session_state
+
+
+@pytest.mark.parametrize("succeeds", [False, True])
+def test_reset_submits_once_without_retaining_password(ui, api, succeeds):
+    """Failed requests do not show a success notice or retain a replacement password."""
+    ui.form_submit_button.return_value = True
+    ui.text_input.side_effect = [PASSWORD, PASSWORD]
+    api.return_value = ACCOUNT if succeeds else None
+    ui.session_state["reset_password_other-id"] = PASSWORD
+    ui.session_state["reset_password_confirmation_other-id"] = PASSWORD
+    if succeeds:
+        with pytest.raises(RerunRequested):
+            users._password_reset_form(ACCOUNT)
+    else:
+        users._password_reset_form(ACCOUNT)
+        assert "user_management_notice" not in ui.session_state
+    api.assert_called_once_with(
+        "POST", "/users/other-id/reset-password", payload={"password": PASSWORD}
+    )
+    assert "reset_password_other-id" not in ui.session_state
+    assert "reset_password_confirmation_other-id" not in ui.session_state
