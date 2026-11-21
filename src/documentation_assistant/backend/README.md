@@ -157,7 +157,8 @@ python -m pip install -r requirements.txt
 ## Local Account Setup
 
 Account setup and backend login are available on the authentication branch.
-Report ownership, administrator-only approval, and the frontend login screen
+Ownership storage and scoped queries are also available. Enforcing ownership
+on report routes, administrator-only approval, and the frontend login screen
 are still being implemented. Report endpoints are not protected yet.
 
 Install the project in editable mode to make the `dap-assistant` command
@@ -226,6 +227,22 @@ The counter persists across backend restarts and resets after a successful
 login or when the five-minute window expires. Unknown usernames receive the
 same credential error and attempt limit. This is a local-app safeguard, not
 a replacement for deployment-level rate limiting on a public server.
+
+### Report Ownership Storage
+
+Saved reports and history summaries include `owner_id`, which identifies the
+owning account. Storage functions can create reports for an account and scope
+reads to an authenticated viewer: regular users see their own reports, while
+administrators see all reports. Ownership filtering happens before search
+pagination. The API will supply the signed-in identity in the next step;
+these storage changes alone do not enforce API access permissions.
+
+Existing reports retain `owner_id: null` during database upgrades. Scoped
+regular-user queries cannot see them; administrator queries can. Startup and
+login never assign them automatically. The internal `assign_report_owner`
+maintenance function can explicitly assign an unowned report to an existing
+account without changing its content or revision. It cannot transfer a report
+that already has an owner. Ownership is not accepted in report request bodies.
 
 ## Start the Server
 
@@ -444,6 +461,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Integration: HTTP client lifecycle | Reuse across generation and regeneration, recovery after a connection failure, and cleanup at shutdown. |
 | Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
 | Integration: accounts and sessions | Account provisioning, credential checks, token storage, logout, expiry, restart persistence, disabled accounts, and login throttling. |
+| Integration: ownership storage | Scoped reads, filtering before pagination, preserved ownership through review actions, legacy upgrades, explicit assignment, and account foreign keys. |
 | Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |
 
 The database unit tests cover the existing-column path; the compatibility
