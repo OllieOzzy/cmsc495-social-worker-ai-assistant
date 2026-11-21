@@ -338,3 +338,19 @@ def test_revoked_token_cannot_access_reports(access):
     access.client.post("/auth/logout", headers=headers).raise_for_status()
     assert access.client.get(access.url, headers=headers).status_code == 401
     assert access.client.get("/reports", headers=headers).status_code == 401
+
+
+def test_report_json_responses_cannot_be_cached(access):
+    """History, saved notes, and write responses carry the same protection as PDFs."""
+    headers = access.headers["alice"]
+    responses = [
+        access.client.get("/reports", headers=headers),
+        access.client.get(access.url, headers=headers),
+        access.client.post("/reports/manual", json={}, headers=headers),
+        access.client.patch(
+            access.url, json={"revision": 2, "notes": "Updated."}, headers=headers
+        ),
+    ]
+    for response in responses:
+        assert response.is_success, response.text
+        assert response.headers["cache-control"] == "no-store"

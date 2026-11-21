@@ -4,7 +4,16 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Body, HTTPException, Path, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+)
 from starlette.concurrency import run_in_threadpool
 
 from documentation_assistant.backend.auth.dependencies import AdminUser, CurrentUser
@@ -40,7 +49,15 @@ from documentation_assistant.backend.schemas.reports import (
     StoredReportDraft,
 )
 
-router = APIRouter(prefix="/reports", tags=["Reports"])
+
+def _prevent_report_caching(response: Response) -> None:
+    """Keep sensitive report JSON out of browser and intermediary caches."""
+    response.headers["Cache-Control"] = "no-store"
+
+
+router = APIRouter(
+    prefix="/reports", tags=["Reports"], dependencies=[Depends(_prevent_report_caching)]
+)
 
 _SESSION_EXAMPLE = {
     "notes": "The student practiced asking for help.",
