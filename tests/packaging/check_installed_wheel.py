@@ -44,7 +44,8 @@ def wait_for_servers(process: subprocess.Popen, client: httpx.Client) -> None:
 
 
 def check_handwritten_report(client: httpx.Client) -> None:
-    """Save a draft through the installed Streamlit form and read its PDF."""
+    """Verify installed login, owner edits, admin approval, PDF export, and logout."""
+    assert client.get(f"{_BACKEND_URL}/reports").status_code == 401
     app_path = files("documentation_assistant.frontend").joinpath("app.py")
     app = AppTest.from_file(str(app_path), default_timeout=20).run()
     assert not app.exception, app.exception
@@ -55,6 +56,9 @@ def check_handwritten_report(client: httpx.Client) -> None:
     app.run()
     assert not app.exception, app.exception
 
+    assert app.session_state["auth_user"]["role"] == "user"
+    assert all(button.label != "Approve saved draft" for button in app.button)
+
     notes = next(field for field in app.text_area if "Session Notes" in field.label)
     notes.set_value(_NOTES)
     next(button for button in app.button if button.label == "Written by hand").click()
@@ -64,6 +68,10 @@ def check_handwritten_report(client: httpx.Client) -> None:
     report_id = app.session_state["report"]["report_id"]
     data = next(field for field in app.text_area if field.label.startswith("D: Data"))
     data.set_value(_DATA)
+    for label in ("A: Assessment", "P: Plan"):
+        next(
+            field for field in app.text_area if field.label.startswith(label)
+        ).set_value("Not documented.")
     next(button for button in app.button if button.label == "Save draft").click()
     app.run()
     assert not app.exception, app.exception
@@ -71,6 +79,7 @@ def check_handwritten_report(client: httpx.Client) -> None:
     report_url = f"{_BACKEND_URL}/reports/{report_id}"
     headers = {"Authorization": f"Bearer {app.session_state['auth_token']}"}
     saved = client.get(report_url, headers=headers).raise_for_status().json()
+    assert saved["owner_id"] == app.session_state["auth_user"]["user_id"]
     assert saved["notes"] == _NOTES
     assert saved["sections"]["data"] == _DATA
     response = client.get(f"{report_url}/download", headers=headers).raise_for_status()
@@ -78,6 +87,48 @@ def check_handwritten_report(client: httpx.Client) -> None:
     # Read the exported content to verify the packaged template and saved DAP text.
     pdf = PdfReader(BytesIO(response.content), strict=True)
     assert _DATA in pdf.pages[0].extract_text()
+
+    # Regular users cannot approve, including when they own the report.
+    assert (
+        client.post(
+            f"{report_url}/approve",
+            json={"revision": saved["revision"]},
+            headers=headers,
+        ).status_code
+        == 403
+    )
+    admin = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "admin", "password": "password1234"},
+        )
+        .raise_for_status()
+        .json()
+    )
+    admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+    approved = (
+        client.post(
+            f"{report_url}/approve",
+            json={"revision": saved["revision"]},
+            headers=admin_headers,
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert approved["approved_by"] == admin["user"]["display_name"]
+    assert (
+        client.delete(
+            report_url, params={"revision": approved["revision"]}, headers=headers
+        ).status_code
+        == 409
+    )
+
+    next(button for button in app.button if button.label == "Sign out").click()
+    app.run()
+    assert not app.exception, app.exception
+    assert "report" not in app.session_state
+    assert "auth_token" not in app.session_state
+    assert client.get(report_url, headers=headers).status_code == 401
 
 
 def stop_launcher(process: subprocess.Popen) -> None:
@@ -143,7 +194,7 @@ def main() -> None:
         finally:
             stop_launcher(process)
     print(
-        "Installed dap-assistant started both servers, saved a draft, and exported a PDF."
+        "Installed dap-assistant verified login, ownership, admin approval, PDF export, and logout."
     )
 
 
