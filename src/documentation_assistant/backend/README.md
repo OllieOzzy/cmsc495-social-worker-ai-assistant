@@ -154,52 +154,6 @@ Install the dependencies using the virtual environment's Python:
 python -m pip install -r requirements.txt
 ```
 
-## Local Account Setup
-
-Account storage and terminal setup are available on the authentication feature
-branch. Login, report ownership, and admin-only approval are added in later
-steps; creating accounts alone does not protect the report endpoints.
-
-For source development, install the project into the active virtual environment
-after installing `requirements.txt`:
-
-```shell
-python -m pip install -e .
-```
-
-Create the two synthetic-data demo accounts explicitly:
-
-```shell
-dap-assistant init-demo-users
-```
-
-| Username | Public demo password | Stored role |
-| --- | --- | --- |
-| `admin` | `password1234` | `admin` |
-| `user` | `password1234` | `user` |
-
-This command stores salted Argon2id hashes. It creates missing accounts and
-leaves existing passwords and roles unchanged. Normal application startup does
-not seed or reset accounts. Use these published credentials only with synthetic
-data for the capstone demonstration.
-
-To add another account, run:
-
-```shell
-dap-assistant create-user
-```
-
-The command prompts for a username, display name, password, and password
-confirmation. The default role is `user`. Add `--role admin` to provision an
-administrator. Optional `--username` and `--display-name` arguments can prefill
-the account details. Passwords are entered through hidden prompts, not command
-arguments, and new non-demo accounts require 15–1,024 characters.
-
-Both commands use `DAP_DB_PATH`, or `data/dap.db` relative to the current working
-folder by default. Run them from the same folder as the app, or configure the
-same database path. Running `dap-assistant` without a subcommand still starts
-FastAPI and Streamlit.
-
 ## Start the Server
 
 ```shell
