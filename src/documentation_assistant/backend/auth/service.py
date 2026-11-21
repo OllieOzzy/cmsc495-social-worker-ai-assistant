@@ -59,7 +59,15 @@ def login(path: Path, username: str, password: str) -> LoginResponse:
     # Start the lifetime after password verification has completed.
     now = int(time())
     expires_at = now + SESSION_LIFETIME_SECONDS
-    save_session(path, token_digest(token), account.user_id, now, expires_at)
+    if not save_session(
+        path,
+        token_digest(token),
+        account.user_id,
+        now,
+        expires_at,
+        verified_password_hash=account.password_hash,
+    ):
+        raise InvalidCredentials("Invalid username or password.")
     return LoginResponse(
         access_token=token,
         expires_at=datetime.fromtimestamp(expires_at, UTC),

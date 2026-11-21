@@ -42,9 +42,22 @@ def save_session(
     user_id: UUID,
     now: int,
     expires_at: int,
-) -> None:
-    """Save only the digest, prune expired sessions, and clear successful attempts."""
+    *,
+    verified_password_hash: str,
+) -> bool:
+    """Save a session only if its verified credential and account are still current.
+
+    Serialize with password resets and deactivation. An in-flight login must
+    not create a valid token after its old credential has been reset.
+    """
     with connect(path) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        account = connection.execute(
+            "SELECT password_hash, is_active FROM users WHERE user_id = ?",
+            (str(user_id),),
+        ).fetchone()
+        if account != (verified_password_hash, 1):
+            return False
         connection.execute("DELETE FROM user_sessions WHERE expires_at <= ?", (now,))
         connection.execute(
             """INSERT INTO user_sessions (token_hash, user_id, created_at, expires_at)
@@ -56,6 +69,7 @@ def save_session(
                (SELECT username FROM users WHERE user_id = ?)""",
             (str(user_id),),
         )
+    return True
 
 
 def get_session_user_id(path: Path, token_hash: str, now: int) -> UUID | None:

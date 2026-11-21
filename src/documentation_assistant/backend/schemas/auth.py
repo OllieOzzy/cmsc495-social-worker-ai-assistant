@@ -74,7 +74,15 @@ class CreateUserRequest(BaseModel):
 
     username: Username
     display_name: _AccountText
-    password: SecretStr = Field(repr=False)
+    password: SecretStr = Field(
+        repr=False,
+        description="A new password containing 15 to 1024 characters.",
+        json_schema_extra={
+            "minLength": 15,
+            "maxLength": 1024,
+            "example": "Synthetic example passphrase!",
+        },
+    )
     role: UserRole = "user"
 
 
@@ -84,3 +92,19 @@ class UserStatusRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_active: bool = Field(strict=True)
+
+
+class ResetPasswordRequest(BaseModel):
+    """Accept a replacement password without exposing it in repr or validation replies."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    password: SecretStr = Field(
+        repr=False,
+        description="A replacement password containing 15 to 1024 characters.",
+        json_schema_extra={
+            "minLength": 15,
+            "maxLength": 1024,
+            "example": "Synthetic example passphrase!",
+        },
+    )

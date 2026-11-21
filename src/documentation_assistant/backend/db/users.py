@@ -85,6 +85,38 @@ def _read_public_user(row: tuple) -> UserAccount:
     )
 
 
+def reset_user_password(
+    path: Path, user_id: UUID, *, password_hash: str
+) -> UserAccount | None:
+    """Replace an encoded password and revoke all sessions in one transaction.
+
+    The caller validates and hashes the password before entering storage.
+    Reset also clears the username's login-attempt window for immediate use
+    of the new credential. Identity, role, activation, and reports are preserved.
+    """
+    with connect(path) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            """SELECT user_id, username, display_name, role, is_active, created_at
+               FROM users WHERE user_id = ?""",
+            (str(user_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        account = _read_public_user(row)
+        connection.execute(
+            "UPDATE users SET password_hash = ? WHERE user_id = ?",
+            (password_hash, str(user_id)),
+        )
+        connection.execute(
+            "DELETE FROM user_sessions WHERE user_id = ?", (str(user_id),)
+        )
+        connection.execute(
+            "DELETE FROM login_attempts WHERE username = ?", (account.username,)
+        )
+    return account
+
+
 def create_user(
     path: Path,
     *,
