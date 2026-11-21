@@ -171,20 +171,26 @@ def assign_report_owner(path: Path, report_id: UUID, owner_id: UUID) -> bool:
     return updated.rowcount == 1
 
 
-def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
+def delete_draft(
+    path: Path, report_id: UUID, revision: int, *, owner_id: UUID | None = None
+) -> bool:
     """Delete a draft at the supplied revision and return False if it is missing."""
+    owner = str(owner_id) if owner_id is not None else None
     with connect(path) as connection:
         # Check the status and revision in the same statement that deletes the row.
         deleted = connection.execute(
             "DELETE FROM report_drafts "
-            "WHERE report_id = ? AND revision = ? AND status = 'draft'",
-            (str(report_id), revision),
+            "WHERE report_id = ? AND revision = ? AND status = 'draft' "
+            "AND (? IS NULL OR owner_id = ?)",
+            (str(report_id), revision, owner, owner),
         )
         if deleted.rowcount == 1:
             return True
 
         saved = connection.execute(
-            "SELECT status FROM report_drafts WHERE report_id = ?", (str(report_id),)
+            "SELECT status FROM report_drafts WHERE report_id = ? "
+            "AND (? IS NULL OR owner_id = ?)",
+            (str(report_id), owner, owner),
         ).fetchone()
         if saved is None:
             return False
@@ -194,7 +200,12 @@ def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
 
 
 def edit_draft(
-    path: Path, report_id: UUID, edit: EditReportRequest, *, ai_assisted: bool = False
+    path: Path,
+    report_id: UUID,
+    edit: EditReportRequest,
+    *,
+    ai_assisted: bool = False,
+    owner_id: UUID | None = None,
 ) -> StoredReportDraft | None:
     """Apply changes to a draft and return its incremented revision."""
     changes = edit.sections.model_dump() if edit.sections is not None else {}
@@ -214,11 +225,17 @@ def edit_draft(
         ", ".join(f"{column} = ?" for column in changes),
         tuple(changes.values()),
         check_time_range="start_time" in changes or "end_time" in changes,
+        owner_id=owner_id,
     )
 
 
 def approve_draft(
-    path: Path, report_id: UUID, revision: int, approved_by: str
+    path: Path,
+    report_id: UUID,
+    revision: int,
+    approved_by: str,
+    *,
+    approved_by_id: UUID | None = None,
 ) -> StoredReportDraft | None:
     """Approve the reviewed revision if all three DAP fields contain text."""
     return _update_review(
@@ -226,8 +243,8 @@ def approve_draft(
         report_id,
         revision,
         "status = 'approved', approved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
-        "approved_by = ?",
-        (approved_by,),
+        "approved_by = ?, approved_by_id = ?",
+        (approved_by, str(approved_by_id) if approved_by_id is not None else None),
         require_complete=True,
     )
 
@@ -242,7 +259,7 @@ def reopen_approved_report(
             """
             UPDATE report_drafts
             SET status = 'draft', revision = revision + 1,
-                approved_at = NULL, approved_by = NULL
+                approved_at = NULL, approved_by = NULL, approved_by_id = NULL
             WHERE report_id = ? AND revision = ? AND status = 'approved'
             """,
             (str(report_id), revision),
@@ -264,11 +281,13 @@ def _update_review(
     *,
     require_complete: bool = False,
     check_time_range: bool = False,
+    owner_id: UUID | None = None,
 ) -> StoredReportDraft | None:
     """Update the matching draft revision and read it in the same transaction."""
     complete = (
         "AND data <> '' AND assessment <> '' AND plan <> ''" if require_complete else ""
     )
+    owner = str(owner_id) if owner_id is not None else None
     with connect(path) as connection:
         # Check status and revision in the UPDATE so stale requests cannot write.
         # The callers build assignments from schema fields or fixed approval SQL.
@@ -276,10 +295,13 @@ def _update_review(
             f"""
             UPDATE report_drafts SET {assignments}, revision = revision + 1
             WHERE report_id = ? AND revision = ? AND status = 'draft' {complete}
+                AND (? IS NULL OR owner_id = ?)
             """,  # nosec B608
-            (*values, str(report_id), revision),
+            (*values, str(report_id), revision, owner, owner),
         )
         report = _get_report(connection, report_id)
+        if report is not None and owner_id is not None and report.owner_id != owner_id:
+            return None
         if updated.rowcount == 0 and report is not None:
             if report.status == "approved":
                 raise ReviewConflict("Approved reports are read-only.")

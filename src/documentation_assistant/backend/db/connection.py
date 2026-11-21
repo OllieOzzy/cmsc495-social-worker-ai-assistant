@@ -7,6 +7,7 @@ from pathlib import Path
 
 _ADDED_COLUMNS = {
     "owner_id": "TEXT REFERENCES users(user_id)",
+    "approved_by_id": "TEXT REFERENCES users(user_id)",
     "created_at": "TEXT",
     "student_name": "TEXT",
     "student_id": "TEXT",
@@ -54,6 +55,7 @@ def initialize_database(path: Path) -> None:
             CREATE TABLE IF NOT EXISTS report_drafts (
                 report_id TEXT PRIMARY KEY NOT NULL,
                 owner_id TEXT REFERENCES users(user_id),
+                approved_by_id TEXT REFERENCES users(user_id),
                 notes TEXT NOT NULL,
                 data TEXT NOT NULL,
                 assessment TEXT NOT NULL,
