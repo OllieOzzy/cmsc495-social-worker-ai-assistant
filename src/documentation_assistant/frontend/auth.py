@@ -83,6 +83,21 @@ def require_login() -> bool:
         _show_login()
         return False
     with st.sidebar:
+        st.html("""
+            <style>
+            .st-key-sign_out button {
+                background-color: #b42318;
+                border-color: #b42318;
+                color: #ffffff;
+            }
+            .st-key-sign_out button:hover,
+            .st-key-sign_out button:focus-visible {
+                background-color: #912018;
+                border-color: #912018;
+                color: #ffffff;
+            }
+            </style>
+        """)
         if st.button("Sign out", key="sign_out", icon=":material/logout:"):
             _sign_out()
     _expire_if_needed()
