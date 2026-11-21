@@ -1,2 +1,9 @@
+# Keep text checkouts consistent on Windows, Linux, and macOS.
+* text=auto eol=lf
+
+# Windows command scripts use their native line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 # Preserve PDF byte offsets across checkouts.
 *.pdf binary
