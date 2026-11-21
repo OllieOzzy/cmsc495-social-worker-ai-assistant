@@ -156,10 +156,10 @@ python -m pip install -r requirements.txt
 
 ## Local Account Setup
 
-Account setup and backend login are available on the authentication branch.
-Ownership storage and scoped queries are also available. Enforcing ownership
-on report routes, administrator-only approval, and the frontend login screen
-are still being implemented. Report endpoints are not protected yet.
+Account setup, backend login, report ownership, and administrator-only review
+are available on the authentication branch. All report endpoints require a
+valid bearer session. The frontend login screen is the next step; use `/docs`
+to test the authenticated backend during this rollout.
 
 Install the project in editable mode to make the `dap-assistant` command
 available in your active virtual environment:
@@ -234,8 +234,8 @@ Saved reports and history summaries include `owner_id`, which identifies the
 owning account. Storage functions can create reports for an account and scope
 reads to an authenticated viewer: regular users see their own reports, while
 administrators see all reports. Ownership filtering happens before search
-pagination. The API will supply the signed-in identity in the next step;
-these storage changes alone do not enforce API access permissions.
+pagination. The API supplies the signed-in identity when creating, listing,
+retrieving, editing, regenerating, deleting, or downloading reports.
 
 Existing reports retain `owner_id: null` during database upgrades. Scoped
 regular-user queries cannot see them; administrator queries can. Startup and
@@ -243,6 +243,27 @@ login never assign them automatically. The internal `assign_report_owner`
 maintenance function can explicitly assign an unowned report to an existing
 account without changing its content or revision. It cannot transfer a report
 that already has an owner. Ownership is not accepted in report request bodies.
+
+### Report Permissions
+
+| Action | Regular user | Administrator |
+| --- | --- | --- |
+| Create a report | Own account | Own account |
+| Read history, open reports, or download PDFs | Own reports | All reports |
+| Edit, regenerate, or delete an unapproved draft | Own reports | Own reports |
+| Approve or reopen a report | Not allowed | Any report |
+| Edit or delete an approved report | Not allowed | Not allowed |
+
+An administrator must reopen an approved report before its owner can correct
+or delete it. Approval records the authenticated administrator's display name,
+account ID, and a UTC timestamp. A supplied legacy `approved_by` field is
+ignored; it cannot impersonate another reviewer. Reopening clears the approval
+details and preserves report ownership.
+
+Missing or expired sessions return `401`. Regular users receive `404` for
+another user's report, including its PDF, without exposing whether it exists.
+Administrator-only actions return `403` for regular users. Administrators also
+receive `403` if they attempt to edit or delete content owned by someone else.
 
 ## Start the Server
 
@@ -278,8 +299,8 @@ time you start FastAPI.
 | `PATCH /reports/{report_id}` | Saves corrected source notes, DAP sections, or report details on a draft. |
 | `POST /reports/{report_id}/regenerate` | Saves corrected notes and new AI-generated DAP sections on the same draft. |
 | `DELETE /reports/{report_id}?revision=1` | Permanently deletes a draft if the supplied revision is current. |
-| `POST /reports/{report_id}/approve` | Approves the saved revision and makes it read-only. |
-| `POST /reports/{report_id}/reopen` | Returns the approved revision to draft for corrections. |
+| `POST /reports/{report_id}/approve` | Administrator only: approves the saved revision and makes it read-only. |
+| `POST /reports/{report_id}/reopen` | Administrator only: returns the approved revision to draft for owner corrections. |
 
 The health endpoint returns:
 
@@ -316,6 +337,8 @@ bypasses environment proxy settings for local Ollama requests.
 - bash or zsh: `export OLLAMA_MODEL="your-model-tag"`
 
 In `/docs`, open **POST /reports/generate**, select **Try it out**, and submit:
+
+Sign in and use **Authorize** first, as described under Backend Login and Sessions.
 
 ```json
 {"notes": "Synthetic student practiced a breathing exercise and reported feeling calmer afterward."}
@@ -377,15 +400,15 @@ that revision with any changes to `notes`, `sections`, or `metadata` to
 Include all three DAP fields when replacing `sections`. Within `metadata`,
 include only the fields to change. Use `null` to clear an optional detail.
 The response contains the new revision and the source notes. The report stays
-in draft status. When review is complete, send the revision you reviewed
-and the reviewer's name to `POST /reports/{report_id}/approve`. Replace the
+in draft status. When review is complete, an administrator sends the reviewed
+revision to `POST /reports/{report_id}/approve`. Replace the
 example revision with the current revision returned by the API.
 
 ```json
-{"revision": 2, "approved_by": "Taylor Example"}
+{"revision": 2}
 ```
 
-Approval records the supplied name and a UTC `approved_at` timestamp and
+Approval records the signed-in administrator's name and a UTC `approved_at` timestamp and
 makes the report read-only. Approval returns `409` if any DAP section is
 blank. Editing or approving an already approved report also returns `409`.
 If the revision is stale, reload the report and review the current version
@@ -408,7 +431,7 @@ in the form so they can retry. A stale revision or an approved report returns
 
 ## Reopen an Approved Report
 
-After confirmation, call `POST /reports/{report_id}/reopen` with the revision
+After confirmation, an administrator calls `POST /reports/{report_id}/reopen` with the revision
 shown on screen, such as `{"revision": 3}`. The response keeps the same report
 ID and saved content, increases the revision, and sets the status to `draft`.
 The approver name and approval timestamp are cleared. Review and approve the
@@ -462,6 +485,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
 | Integration: accounts and sessions | Account provisioning, credential checks, token storage, logout, expiry, restart persistence, disabled accounts, and login throttling. |
 | Integration: ownership storage | Scoped reads, filtering before pagination, preserved ownership through review actions, legacy upgrades, explicit assignment, and account foreign keys. |
+| Integration: report permissions | Real user sessions, cross-user isolation, owner-only writes, admin review, authenticated reviewer identity, revoked sessions, and ownership changes during regeneration. |
 | Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |
 
 The database unit tests cover the existing-column path; the compatibility
