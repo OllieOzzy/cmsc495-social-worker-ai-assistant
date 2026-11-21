@@ -13,6 +13,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from documentation_assistant.backend.db.connection import connect
+from documentation_assistant.backend.schemas.auth import UserAccount
 from documentation_assistant.backend.schemas.reports import (
     DraftSections,
     EditReportRequest,
@@ -37,12 +38,19 @@ def save_draft(
     notes: str,
     sections: DraftSections,
     metadata: ReportMetadata | None = None,
+    *,
+    owner_id: UUID | None = None,
 ) -> StoredReportDraft:
-    """Insert a draft with a new ID and return it after the write commits."""
+    """Insert a draft owned by the supplied account and return it after commit.
+
+    None preserves unassigned legacy/internal reports during the authentication
+    rollout. Authenticated API creation must supply the signed-in account ID.
+    """
     details = metadata.model_dump(mode="json") if metadata is not None else {}
     metadata_values = [details.get(field) for field in _METADATA_FIELDS]
     draft = StoredReportDraft(
         report_id=uuid4(),
+        owner_id=owner_id,
         notes=notes,
         sections=sections,
         metadata=_read_metadata(metadata_values),
@@ -52,12 +60,14 @@ def save_draft(
         connection.execute(
             f"""
             INSERT INTO report_drafts
-                (report_id, notes, data, assessment, plan, created_at, {_METADATA_COLUMNS})
-            VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                (report_id, owner_id, notes, data, assessment, plan, created_at,
+                 {_METADATA_COLUMNS})
+            VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     {_METADATA_PLACEHOLDERS})
             """,  # nosec B608
             (
                 str(draft.report_id),
+                str(owner_id) if owner_id is not None else None,
                 notes,
                 sections.data,
                 sections.assessment,
@@ -69,16 +79,25 @@ def save_draft(
 
 
 def list_drafts(
-    path: Path, filters: ReportFilters | None = None
+    path: Path,
+    filters: ReportFilters | None = None,
+    *,
+    viewer: UserAccount | None = None,
 ) -> list[ReportSummary]:
     """List a bounded page of matching summaries in reverse insertion order.
 
     SQLite applies filters before limit and offset, so only summaries on the
     requested page are loaded and validated. An exhausted page returns [].
+    With a viewer, regular accounts see only their own rows; administrators see
+    all rows, including unassigned reports. None is reserved for trusted internal
+    callers during rollout, not a substitute for authenticating an API request.
     """
     values = (filters or ReportFilters()).model_dump(mode="json")
     clauses = []
     parameters = []
+    if viewer is not None and viewer.role != "admin":
+        clauses.append("owner_id = ?")
+        parameters.append(str(viewer.user_id))
     for condition, value in (
         ("instr(casefold(student_name), ?) > 0", _casefold(values["student_name"])),
         ("student_id = ?", values["student_id"]),
@@ -104,7 +123,7 @@ def list_drafts(
         connection.create_function("casefold", 1, _casefold)
         rows = connection.execute(
             f"""
-            SELECT report_id, created_at, status, approved_by, {_METADATA_COLUMNS}
+            SELECT report_id, owner_id, created_at, status, approved_by, {_METADATA_COLUMNS}
             FROM report_drafts {where} ORDER BY rowid DESC LIMIT ? OFFSET ?
             """,  # nosec B608
             [*parameters, values["limit"], values["offset"]],
@@ -113,20 +132,43 @@ def list_drafts(
         ReportSummary.model_validate(
             {
                 "report_id": report_id,
+                "owner_id": owner_id,
                 "created_at": created_at,
                 "status": status,
                 "approved_by": approved_by,
                 "metadata": _read_metadata(details),
             }
         )
-        for report_id, created_at, status, approved_by, *details in rows
+        for report_id, owner_id, created_at, status, approved_by, *details in rows
     ]
 
 
-def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:
-    """Return the full saved report by ID, or None if it is missing."""
+def get_draft(
+    path: Path, report_id: UUID, *, viewer: UserAccount | None = None
+) -> StoredReportDraft | None:
+    """Return a visible report, or None for missing and inaccessible IDs alike.
+
+    Pass an authenticated viewer for user-facing reads. Omitting it is reserved
+    for trusted internal operations during the authentication rollout.
+    """
     with connect(path) as connection:
-        return _get_report(connection, report_id)
+        return _get_report(connection, report_id, viewer=viewer)
+
+
+def assign_report_owner(path: Path, report_id: UUID, owner_id: UUID) -> bool:
+    """Explicitly assign an unowned report without changing content or revision.
+
+    This trusted maintenance operation never transfers an already owned report.
+    The account must exist; SQLite enforces the foreign key. No automatic
+    assignment occurs during startup or login.
+    """
+    with connect(path) as connection:
+        updated = connection.execute(
+            "UPDATE report_drafts SET owner_id = ? "
+            "WHERE report_id = ? AND owner_id IS NULL",
+            (str(owner_id), str(report_id)),
+        )
+    return updated.rowcount == 1
 
 
 def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
@@ -254,22 +296,31 @@ def _update_review(
 
 
 def _get_report(
-    connection: sqlite3.Connection, report_id: UUID
+    connection: sqlite3.Connection,
+    report_id: UUID,
+    *,
+    viewer: UserAccount | None = None,
 ) -> StoredReportDraft | None:
     """Read a report using the caller's connection and transaction."""
     # The column list comes from the schema. The report ID is bound separately.
+    owner_clause = ""
+    parameters = [str(report_id)]
+    if viewer is not None and viewer.role != "admin":
+        owner_clause = "AND owner_id = ?"
+        parameters.append(str(viewer.user_id))
     row = connection.execute(
         f"""
-        SELECT notes, data, assessment, plan, status, revision, approved_at, approved_by,
+        SELECT owner_id, notes, data, assessment, plan, status, revision, approved_at, approved_by,
                {_METADATA_COLUMNS}
-        FROM report_drafts WHERE report_id = ?
+        FROM report_drafts WHERE report_id = ? {owner_clause}
         """,  # nosec B608
-        (str(report_id),),
+        tuple(parameters),
     ).fetchone()
     if row is None:
         return None
     # Rebuild the nested sections from the flat SQLite row.
     (
+        owner_id,
         notes,
         data,
         assessment,
@@ -283,6 +334,7 @@ def _get_report(
     return StoredReportDraft.model_validate(
         {
             "report_id": report_id,
+            "owner_id": owner_id,
             "notes": notes,
             "sections": DraftSections(data=data, assessment=assessment, plan=plan),
             "metadata": _read_metadata(details),

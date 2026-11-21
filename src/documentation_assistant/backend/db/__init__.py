@@ -3,6 +3,7 @@
 from documentation_assistant.backend.db.drafts import (
     ReviewConflict,
     approve_draft,
+    assign_report_owner,
     delete_draft,
     edit_draft,
     get_draft,
@@ -21,6 +22,7 @@ __all__ = [
     "DuplicateUsername",
     "ReviewConflict",
     "approve_draft",
+    "assign_report_owner",
     "create_user",
     "delete_draft",
     "edit_draft",

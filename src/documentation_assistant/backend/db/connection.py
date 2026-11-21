@@ -6,6 +6,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 
 _ADDED_COLUMNS = {
+    "owner_id": "TEXT REFERENCES users(user_id)",
     "created_at": "TEXT",
     "student_name": "TEXT",
     "student_id": "TEXT",
@@ -52,6 +53,7 @@ def initialize_database(path: Path) -> None:
         connection.execute("""
             CREATE TABLE IF NOT EXISTS report_drafts (
                 report_id TEXT PRIMARY KEY NOT NULL,
+                owner_id TEXT REFERENCES users(user_id),
                 notes TEXT NOT NULL,
                 data TEXT NOT NULL,
                 assessment TEXT NOT NULL,
@@ -110,6 +112,9 @@ def initialize_database(path: Path) -> None:
                 window_started_at INTEGER NOT NULL
             )
         """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS report_drafts_owner_id ON report_drafts(owner_id)"
+        )
 
 
 def _ensure_added_columns(connection: sqlite3.Connection) -> None:

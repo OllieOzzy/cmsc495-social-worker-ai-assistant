@@ -44,6 +44,7 @@ def test_save_draft_inserts_notes_and_sections(mock_connect):
     execute.assert_called_once()
     assert execute.call_args.args[1] == (
         str(draft.report_id),
+        None,
         notes,
         sections.data,
         sections.assessment,
@@ -59,6 +60,7 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
     execute.return_value.fetchall.return_value = [
         (
             str(first_id),
+            None,
             "2026-11-09T15:30:00Z",
             "approved",
             "Taylor Example",
@@ -71,7 +73,7 @@ def test_list_drafts_maps_timestamps_and_legacy_rows(mock_connect):
             "iep",
             *(None,) * (METADATA_FIELD_COUNT - 7),
         ),
-        (str(second_id), None, "draft", None, *(None,) * METADATA_FIELD_COUNT),
+        (str(second_id), None, None, "draft", None, *(None,) * METADATA_FIELD_COUNT),
     ]
 
     first, second = drafts.list_drafts(Path("unused.db"))
@@ -98,6 +100,7 @@ def test_get_draft_maps_row_to_report(mock_connect):
     sections = ("Breathing exercise practiced.", "Not documented.", "Check in Friday.")
     execute = mock_connect.return_value.__enter__.return_value.execute
     execute.return_value.fetchone.return_value = (
+        None,
         notes,
         *sections,
         "draft",
@@ -112,6 +115,7 @@ def test_get_draft_maps_row_to_report(mock_connect):
     assert draft is not None
     assert draft.model_dump() == {
         "report_id": report_id,
+        "owner_id": None,
         "status": "draft",
         "notes": notes,
         "metadata": None,

@@ -230,6 +230,7 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
     assert retrieved.status_code == 200
     assert retrieved.json() == {
         **draft,
+        "owner_id": None,
         "notes": NOTES,
         "metadata": SavedReportMetadata(draft_source="ai_assisted").model_dump(
             mode="json"
@@ -461,6 +462,7 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
         for summary in summaries:
             assert set(summary) == {
                 "report_id",
+                "owner_id",
                 "status",
                 "created_at",
                 "metadata",
@@ -475,6 +477,7 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
             assert response.status_code == 200
             assert response.json() == {
                 "report_id": report_id,
+                "owner_id": None,
                 "status": "draft",
                 "notes": notes,
                 "metadata": SavedReportMetadata(draft_source="ai_assisted").model_dump(
@@ -515,6 +518,7 @@ def test_list_reports_includes_drafts_saved_before_timestamps(app):
         assert listing.json() == [
             {
                 "report_id": report_id,
+                "owner_id": None,
                 "status": "draft",
                 "created_at": None,
                 "metadata": None,
