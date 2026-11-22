@@ -25,15 +25,28 @@ class PasswordChangeConflict(ValueError):
     """The verified password or activation changed before the new password was saved."""
 
 
-def list_users(path: Path, *, limit: int = 25, offset: int = 0) -> list[UserAccount]:
-    """Return a bounded, alphabetical page without reading any password hashes."""
+def list_users(
+    path: Path, *, limit: int = 25, offset: int = 0, search: str = ""
+) -> list[UserAccount]:
+    """Search public names before pagination without reading password hashes.
+
+    Use literal substring matching, so SQL wildcard characters are ordinary
+    search text. Case folding supports display names beyond ASCII usernames.
+    """
     if not 1 <= limit <= 100 or offset < 0:
         raise ValueError("Invalid account page bounds.")
+    if len(search) > 200:
+        raise ValueError("Account search must contain at most 200 characters.")
+    search = search.strip().casefold()
     with connect(path) as connection:
+        connection.create_function("casefold", 1, str.casefold, deterministic=True)
         rows = connection.execute(
             """SELECT user_id, username, display_name, role, is_active, created_at
-               FROM users ORDER BY username LIMIT ? OFFSET ?""",
-            (limit, offset),
+               FROM users
+               WHERE instr(casefold(username), ?) > 0
+                  OR instr(casefold(display_name), ?) > 0
+               ORDER BY username LIMIT ? OFFSET ?""",
+            (search, search, limit, offset),
         ).fetchall()
     return [_read_public_user(row) for row in rows]
 

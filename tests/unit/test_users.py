@@ -113,7 +113,23 @@ def test_list_users_maps_public_rows_without_selecting_password_hashes(database)
     assert "password_hash" not in result[0].model_dump()
     sql, parameters = database.execute.call_args.args
     assert "password_hash" not in sql
-    assert parameters == (10, 20)
+    assert parameters == ("", "", 10, 20)
+
+
+def test_account_search_is_bound_and_casefolded(database):
+    """Keep search text out of SQL, including quotes and literal wildcards."""
+    database.execute.return_value.fetchall.return_value = []
+    users.list_users(Path("unused.db"), search="  STRAẞE_%'  ")
+    sql, parameters = database.execute.call_args.args
+    assert "STRAẞE" not in sql
+    assert parameters == ("strasse_%'", "strasse_%'", 25, 0)
+
+
+def test_storage_rejects_oversized_account_search(database):
+    """Bound search length for internal callers as well as HTTP clients."""
+    with pytest.raises(ValueError, match="200 characters"):
+        users.list_users(Path("unused.db"), search="x" * 201)
+    database.execute.assert_not_called()
 
 
 @pytest.mark.parametrize("limit, offset", [(0, 0), (101, 0), (25, -1)])
