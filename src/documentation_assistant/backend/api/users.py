@@ -42,10 +42,13 @@ def read_users(
     admin: AdminUser,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
+    search: Annotated[str, Query(max_length=200)] = "",
 ) -> list[UserAccount]:
     """List public account identities, including inactive accounts, for admins."""
     response.headers["Cache-Control"] = "no-store"
-    return list_users(request.app.state.database_path, limit=limit, offset=offset)
+    return list_users(
+        request.app.state.database_path, limit=limit, offset=offset, search=search
+    )
 
 
 @router.post("", response_model=UserAccount, status_code=201)
