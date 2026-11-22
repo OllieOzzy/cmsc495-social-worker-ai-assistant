@@ -18,6 +18,36 @@ def button(app, label):
     return next(item for item in app.button if item.label == label)
 
 
+def test_account_search_resets_pages_and_clears_selection(backend_for_ui):
+    """Find accounts beyond page one, handle no matches, and restore the full list."""
+    encoded = hash_password(PASSWORD)
+    for index in range(27):
+        create_user(
+            backend_for_ui.app.state.database_path,
+            username=f"person-{index:02}",
+            display_name=f"School Worker {index:02}",
+            password_hash=encoded,
+        )
+    app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=15))
+    button(app, "Manage users").click().run()
+    button(app, "Next users").click().run()
+    assert app.session_state["users_offset"] == 25
+    app.text_input(key="users_search").set_value("school worker 00").run()
+    assert not app.exception, app.exception
+    assert app.session_state["users_offset"] == 0
+    assert list(app.dataframe[0].value["Username"]) == ["person-00"]
+    assert app.selectbox(key="managed_user_id").options == ["person-00"]
+    app.text_input(key="users_search").set_value("no-matching-user").run()
+    assert not app.exception, app.exception
+    assert any(notice.value == "No matching accounts." for notice in app.info)
+    assert all(widget.label != "Account" for widget in app.selectbox)
+    button(app, "Clear search").click().run()
+    assert not app.exception, app.exception
+    assert app.text_input(key="users_search").value == ""
+    assert len(app.dataframe[0].value) == 25
+    assert not button(app, "Next users").disabled
+
+
 def test_admin_creates_account_in_gui_and_new_user_can_sign_in(backend_for_ui):
     """A GUI-created regular account works immediately and has no admin navigation."""
     app = sign_in_app(AppTest.from_file(str(APP_PATH), default_timeout=15))
