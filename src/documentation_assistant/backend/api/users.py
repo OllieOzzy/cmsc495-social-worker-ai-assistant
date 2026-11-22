@@ -1,4 +1,4 @@
-"""Let administrators list, create, and activate accounts without public signup."""
+"""Administer account identity, activation, and password recovery without public signup."""
 
 from typing import Annotated
 from uuid import UUID
@@ -16,6 +16,7 @@ from documentation_assistant.backend.db.users import (
     DuplicateUsername,
     create_user,
     list_users,
+    rename_user,
     reset_user_password,
     set_user_active,
 )
@@ -23,6 +24,7 @@ from documentation_assistant.backend.schemas.auth import (
     CreateUserRequest,
     ResetPasswordRequest,
     UserAccount,
+    UserProfileRequest,
     UserStatusRequest,
 )
 
@@ -118,6 +120,30 @@ def reset_account_password(
         user_id,
         password_hash=hash_password(password),
     )
+    if account is None:
+        raise HTTPException(404, "Account not found.")
+    return account
+
+
+@router.patch("/{user_id}/profile", response_model=UserAccount)
+def rename_account(
+    user_id: UUID,
+    payload: UserProfileRequest,
+    request: Request,
+    response: Response,
+    admin: AdminUser,
+) -> UserAccount:
+    """Let administrators update names without transferring account identity."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        account = rename_user(
+            request.app.state.database_path,
+            user_id,
+            username=payload.username,
+            display_name=payload.display_name,
+        )
+    except DuplicateUsername as exc:
+        raise HTTPException(409, str(exc)) from exc
     if account is None:
         raise HTTPException(404, "Account not found.")
     return account
