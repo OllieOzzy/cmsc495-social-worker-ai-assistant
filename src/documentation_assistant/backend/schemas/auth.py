@@ -108,3 +108,20 @@ class ResetPasswordRequest(BaseModel):
             "example": "Synthetic example passphrase!",
         },
     )
+
+
+class ChangePasswordRequest(BaseModel):
+    """Verify the current credential without accepting a target account ID."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: SecretStr = Field(repr=False)
+    new_password: SecretStr = Field(
+        repr=False,
+        description="A new password containing 15 to 1024 characters.",
+        json_schema_extra={
+            "minLength": 15,
+            "maxLength": 1024,
+            "example": "Synthetic example passphrase!",
+        },
+    )

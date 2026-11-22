@@ -21,6 +21,10 @@ class AccountStatusConflict(ValueError):
     """An activation change would remove the last active administrator."""
 
 
+class PasswordChangeConflict(ValueError):
+    """The verified password or activation changed before the new password was saved."""
+
+
 def list_users(path: Path, *, limit: int = 25, offset: int = 0) -> list[UserAccount]:
     """Return a bounded, alphabetical page without reading any password hashes."""
     if not 1 <= limit <= 100 or offset < 0:
@@ -86,13 +90,19 @@ def _read_public_user(row: tuple) -> UserAccount:
 
 
 def reset_user_password(
-    path: Path, user_id: UUID, *, password_hash: str
+    path: Path,
+    user_id: UUID,
+    *,
+    password_hash: str,
+    verified_password_hash: str | None = None,
 ) -> UserAccount | None:
     """Replace an encoded password and revoke all sessions in one transaction.
 
     The caller validates and hashes the password before entering storage.
     Reset also clears the username's login-attempt window for immediate use
     of the new credential. Identity, role, activation, and reports are preserved.
+    Self-service changes supply their verified hash so an intervening reset or
+    deactivation cannot be overwritten by a stale password verification.
     """
     with connect(path) as connection:
         connection.execute("BEGIN IMMEDIATE")
@@ -104,6 +114,15 @@ def reset_user_password(
         if row is None:
             return None
         account = _read_public_user(row)
+        if verified_password_hash is not None:
+            current = connection.execute(
+                "SELECT password_hash, is_active FROM users WHERE user_id = ?",
+                (str(user_id),),
+            ).fetchone()
+            if current != (verified_password_hash, 1):
+                raise PasswordChangeConflict(
+                    "Account changed. Please sign in again before changing your password."
+                )
         connection.execute(
             "UPDATE users SET password_hash = ? WHERE user_id = ?",
             (password_hash, str(user_id)),

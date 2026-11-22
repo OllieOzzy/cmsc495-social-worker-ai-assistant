@@ -5,9 +5,11 @@ import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from time import time
+from uuid import UUID
 
 from documentation_assistant.backend.auth.passwords import (
     hash_password,
+    validate_new_password,
     verify_password,
 )
 from documentation_assistant.backend.db.sessions import (
@@ -19,6 +21,7 @@ from documentation_assistant.backend.db.sessions import (
 from documentation_assistant.backend.db.users import (
     get_user_by_id,
     get_user_by_username,
+    reset_user_password,
 )
 from documentation_assistant.backend.schemas.auth import LoginResponse, UserAccount
 
@@ -30,6 +33,10 @@ _DUMMY_HASH = hash_password(secrets.token_urlsafe(32))
 
 class InvalidCredentials(ValueError):
     """Credentials or a session cannot authenticate an active account."""
+
+
+class IncorrectCurrentPassword(ValueError):
+    """A signed-in user supplied the wrong current password."""
 
 
 class LoginThrottled(ValueError):
@@ -89,3 +96,32 @@ def authenticate_session(path: Path, token: str) -> UserAccount:
 def logout(path: Path, token: str) -> None:
     """Revoke the supplied session so its token cannot be reused."""
     delete_session(path, token_digest(token))
+
+
+def change_password(
+    path: Path, user_id: UUID, current_password: str, new_password: str
+) -> None:
+    """Verify the current credential, then atomically replace it and revoke sessions.
+
+    Use the login attempt window to bound guesses of the current password.
+    Verification and hashing stay outside the write lock; storage rechecks the
+    verified hash under the lock before committing the replacement.
+    """
+    validate_new_password(new_password)
+    account = get_user_by_id(path, user_id)
+    if account is None or not account.is_active:
+        raise InvalidCredentials("Invalid or expired session.")
+    if retry_after := reserve_login_attempt(path, account.username, int(time())):
+        raise LoginThrottled(retry_after)
+    if not verify_password(current_password, account.password_hash):
+        raise IncorrectCurrentPassword("Current password is incorrect.")
+    if (
+        reset_user_password(
+            path,
+            user_id,
+            password_hash=hash_password(new_password),
+            verified_password_hash=account.password_hash,
+        )
+        is None
+    ):
+        raise InvalidCredentials("Invalid or expired session.")
