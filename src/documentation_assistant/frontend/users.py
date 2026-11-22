@@ -3,6 +3,7 @@
 import streamlit as st
 
 from .api_client import request_api
+from .audit import show_audit_history
 from .auth_state import clear_session, is_admin
 
 _PAGE_SIZE = 25
@@ -43,6 +44,10 @@ def show_user_management() -> None:
         st.error("Administrator access required.")
         return
     st.header("Manage users")
+    st.toggle("Show audit history", key="show_user_audit")
+    if st.session_state.get("show_user_audit", False):
+        show_audit_history()
+        return
     if notice := st.session_state.pop("user_management_notice", None):
         st.success(notice)
     st.text_input(

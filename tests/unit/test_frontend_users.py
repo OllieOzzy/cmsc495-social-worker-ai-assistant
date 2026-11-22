@@ -226,6 +226,16 @@ def test_search_is_preserved_in_paginated_requests(ui, api):
     ui.info.assert_called_once_with("No matching accounts.")
 
 
+def test_history_view_skips_account_loading(ui, api, monkeypatch):
+    """Opening history does not also fetch the account table or render edit forms."""
+    history = Mock()
+    monkeypatch.setattr(users, "show_audit_history", history)
+    ui.session_state["show_user_audit"] = True
+    users.show_user_management()
+    history.assert_called_once_with()
+    api.assert_not_called()
+
+
 @pytest.mark.parametrize("clear", [False, True])
 def test_search_changes_reset_pagination_and_selection(ui, clear):
     """Avoid stale page offsets or selected accounts after changing the query."""
