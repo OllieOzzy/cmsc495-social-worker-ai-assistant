@@ -150,7 +150,59 @@ def _account_status_form(users: list[dict]) -> None:
                 f"Updated account: {updated['username']}."
             )
             st.rerun()
+    _rename_account_form(account)
     _password_reset_form(account)
+
+
+def _rename_account_form(account: dict) -> None:
+    """Confirm session revocation only when the normalized username changes."""
+    user_id = account["user_id"]
+    # Saved names are part of the form identity, so external changes reset it.
+    form_key = f"rename_{user_id}_{account['username']}_{account['display_name']}"
+    with st.expander("Rename account"), st.form(form_key):
+        username = st.text_input(
+            "New username", value=account["username"], max_chars=64
+        )
+        display_name = st.text_input(
+            "New display name", value=account["display_name"], max_chars=200
+        )
+        acknowledged = st.checkbox(
+            "I understand a username change signs the user out of all sessions"
+        )
+        st.caption(
+            "Usernames must be unique. Display-name changes keep sessions active. Reports and historical approver names are preserved."
+        )
+        saved = st.form_submit_button("Save account names", icon=":material/edit:")
+    if not saved:
+        return
+    if not username.strip() or not display_name.strip():
+        st.error("Enter a username and display name.")
+        return
+    username_changed = username.strip().lower() != account["username"]
+    if username_changed and not acknowledged:
+        st.error("Confirm that a username change signs out all sessions.")
+        return
+    changes = {}
+    if username_changed:
+        changes["username"] = username
+    if display_name.strip() != account["display_name"]:
+        changes["display_name"] = display_name
+    if not changes:
+        st.info("No account details changed.")
+        return
+    updated = request_api("PATCH", f"/users/{user_id}/profile", payload=changes)
+    if updated is not None:
+        own_account = user_id == st.session_state["auth_user"]["user_id"]
+        if own_account and username_changed:
+            clear_session("Username updated. Please sign in with your new username.")
+        else:
+            if own_account:
+                st.session_state["auth_user"] = updated
+            st.session_state["users_offset"] = 0
+            st.session_state["user_management_notice"] = (
+                f"Updated account names: {updated['username']}."
+            )
+        st.rerun(scope="app")
 
 
 def _password_reset_form(account: dict) -> None:

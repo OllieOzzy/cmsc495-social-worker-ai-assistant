@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from documentation_assistant.frontend import users
+from documentation_assistant.frontend import auth_state, users
 
 ACCOUNT = {
     "user_id": "other-id",
@@ -160,6 +160,81 @@ def test_account_pagination_requests_one_extra_row(ui, api, label, offset, expec
     api.assert_called_once_with("GET", "/users", params={"limit": 26, "offset": offset})
     assert len(ui.dataframe.call_args.args[0]) == 25
     assert ui.session_state["users_offset"] == expected
+
+
+@pytest.mark.parametrize(
+    "values, acknowledged, message",
+    [
+        (["", "Name"], True, "Enter a username and display name."),
+        (
+            ["renamed", "Name"],
+            False,
+            "Confirm that a username change signs out all sessions.",
+        ),
+    ],
+)
+def test_rename_requires_valid_names_and_username_acknowledgement(
+    ui, api, values, acknowledged, message
+):
+    """Do not send an identity edit before confirming its session consequences."""
+    ui.form_submit_button.return_value = True
+    ui.text_input.side_effect = values
+    ui.checkbox.return_value = acknowledged
+    users._rename_account_form(ACCOUNT)
+    api.assert_not_called()
+    ui.error.assert_called_once_with(message)
+
+
+def test_normalized_rename_noop_does_not_send_request(ui, api):
+    """Case and whitespace alone must not revoke the user's sessions."""
+    ui.form_submit_button.return_value = True
+    ui.text_input.side_effect = [" OTHER ", " Other User "]
+    users._rename_account_form(ACCOUNT)
+    api.assert_not_called()
+    ui.info.assert_called_once_with("No account details changed.")
+
+
+@pytest.mark.parametrize("succeeds", [False, True])
+def test_display_rename_submits_only_changed_field_without_revocation_ack(
+    ui, api, succeeds
+):
+    """A display-only edit does not submit or unintentionally restore a username."""
+    ui.form_submit_button.return_value = True
+    ui.text_input.side_effect = ["other", "New Display"]
+    ui.checkbox.return_value = False
+    api.return_value = {**ACCOUNT, "display_name": "New Display"} if succeeds else None
+    if succeeds:
+        with pytest.raises(RerunRequested):
+            users._rename_account_form(ACCOUNT)
+    else:
+        users._rename_account_form(ACCOUNT)
+        assert "user_management_notice" not in ui.session_state
+    api.assert_called_once_with(
+        "PATCH", "/users/other-id/profile", payload={"display_name": "New Display"}
+    )
+
+
+@pytest.mark.parametrize("username_changed", [False, True])
+def test_self_rename_clears_session_only_for_username_changes(
+    ui, api, monkeypatch, username_changed
+):
+    """Display changes refresh identity; changing login name returns the admin to login."""
+    monkeypatch.setattr(auth_state, "st", ui)
+    current = {**ACCOUNT, "user_id": "admin-id", "role": "admin"}
+    new_username = "renamed-admin" if username_changed else current["username"]
+    ui.session_state.update(auth_token="old-token", report={"notes": "Saved notes."})
+    ui.form_submit_button.return_value = True
+    ui.text_input.side_effect = [new_username, "New Admin Name"]
+    updated = {**current, "username": new_username, "display_name": "New Admin Name"}
+    api.return_value = updated
+    with pytest.raises(RerunRequested):
+        users._rename_account_form(current)
+    if username_changed:
+        assert set(ui.session_state) == {"auth_notice"}
+    else:
+        assert ui.session_state["auth_user"] == updated
+        assert ui.session_state["auth_token"] == "old-token"
+        assert ui.session_state["report"] == {"notes": "Saved notes."}
 
 
 @pytest.mark.parametrize(
