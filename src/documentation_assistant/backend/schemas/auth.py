@@ -4,7 +4,14 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    StringConstraints,
+    model_validator,
+)
 
 UserRole = Literal["user", "admin"]
 Username = Annotated[
@@ -92,6 +99,25 @@ class UserStatusRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     is_active: bool = Field(strict=True)
+
+
+class UserProfileRequest(BaseModel):
+    """Rename identity without accepting role, activation, or password changes."""
+
+    model_config = ConfigDict(extra="forbid")
+    username: Username | None = None
+    display_name: _AccountText | None = None
+
+    @model_validator(mode="after")
+    def require_profile_change(self) -> "UserProfileRequest":
+        """Require at least one supplied name and reject explicit null values."""
+        if not self.model_fields_set or any(
+            getattr(self, field) is None for field in self.model_fields_set
+        ):
+            raise ValueError(
+                "Provide a username or display name; names cannot be null."
+            )
+        return self
 
 
 class ResetPasswordRequest(BaseModel):

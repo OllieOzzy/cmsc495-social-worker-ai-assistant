@@ -87,6 +87,7 @@ def change_own_password(
             user.user_id,
             payload.current_password.get_secret_value(),
             payload.new_password.get_secret_value(),
+            authenticated_username=user.username,
         )
     except IncorrectCurrentPassword as exc:
         raise HTTPException(403, str(exc), headers=headers) from exc

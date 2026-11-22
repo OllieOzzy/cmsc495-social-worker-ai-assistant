@@ -95,14 +95,15 @@ def reset_user_password(
     *,
     password_hash: str,
     verified_password_hash: str | None = None,
+    verified_username: str | None = None,
 ) -> UserAccount | None:
     """Replace an encoded password and revoke all sessions in one transaction.
 
     The caller validates and hashes the password before entering storage.
     Reset also clears the username's login-attempt window for immediate use
     of the new credential. Identity, role, activation, and reports are preserved.
-    Self-service changes supply their verified hash so an intervening reset or
-    deactivation cannot be overwritten by a stale password verification.
+    Self-service changes supply their verified hash and username so an
+    intervening reset, rename, or deactivation cannot be overwritten.
     """
     with connect(path) as connection:
         connection.execute("BEGIN IMMEDIATE")
@@ -116,10 +117,13 @@ def reset_user_password(
         account = _read_public_user(row)
         if verified_password_hash is not None:
             current = connection.execute(
-                "SELECT password_hash, is_active FROM users WHERE user_id = ?",
+                "SELECT password_hash, is_active, username FROM users WHERE user_id = ?",
                 (str(user_id),),
             ).fetchone()
-            if current != (verified_password_hash, 1):
+            expected_username = (
+                verified_username if verified_username is not None else account.username
+            )
+            if current != (verified_password_hash, 1, expected_username):
                 raise PasswordChangeConflict(
                     "Account changed. Please sign in again before changing your password."
                 )
@@ -134,6 +138,58 @@ def reset_user_password(
             "DELETE FROM login_attempts WHERE username = ?", (account.username,)
         )
     return account
+
+
+def rename_user(
+    path: Path,
+    user_id: UUID,
+    *,
+    username: str | None = None,
+    display_name: str | None = None,
+) -> UserAccount | None:
+    """Rename identity, preserving reports and historical approval snapshots.
+
+    A changed username revokes sessions and clears both login-attempt windows
+    atomically. Display-only changes preserve sessions. Uniqueness conflicts
+    roll back the whole operation without changing names or revoking tokens.
+    """
+    try:
+        with connect(path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """SELECT user_id, username, display_name, role, is_active, created_at
+                   FROM users WHERE user_id = ?""",
+                (str(user_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            current = _read_public_user(row)
+            updated = UserAccount.model_validate(
+                {
+                    **current.model_dump(),
+                    "username": username if username is not None else current.username,
+                    "display_name": display_name
+                    if display_name is not None
+                    else current.display_name,
+                }
+            )
+            connection.execute(
+                "UPDATE users SET username = ?, display_name = ? WHERE user_id = ?",
+                (updated.username, updated.display_name, str(user_id)),
+            )
+            if updated.username != current.username:
+                connection.execute(
+                    "DELETE FROM user_sessions WHERE user_id = ?", (str(user_id),)
+                )
+                connection.execute(
+                    "DELETE FROM login_attempts WHERE username IN (?, ?)",
+                    (current.username, updated.username),
+                )
+        return updated
+    except sqlite3.IntegrityError as exc:
+        if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+            raise DuplicateUsername("Username already exists.") from exc
+        raise
 
 
 def create_user(

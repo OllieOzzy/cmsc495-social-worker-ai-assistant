@@ -73,6 +73,7 @@ def login(path: Path, username: str, password: str) -> LoginResponse:
         now,
         expires_at,
         verified_password_hash=account.password_hash,
+        verified_username=account.username,
     ):
         raise InvalidCredentials("Invalid username or password.")
     return LoginResponse(
@@ -99,7 +100,12 @@ def logout(path: Path, token: str) -> None:
 
 
 def change_password(
-    path: Path, user_id: UUID, current_password: str, new_password: str
+    path: Path,
+    user_id: UUID,
+    current_password: str,
+    new_password: str,
+    *,
+    authenticated_username: str | None = None,
 ) -> None:
     """Verify the current credential, then atomically replace it and revoke sessions.
 
@@ -111,6 +117,11 @@ def change_password(
     account = get_user_by_id(path, user_id)
     if account is None or not account.is_active:
         raise InvalidCredentials("Invalid or expired session.")
+    if (
+        authenticated_username is not None
+        and account.username != authenticated_username
+    ):
+        raise InvalidCredentials("Invalid or expired session.")
     if retry_after := reserve_login_attempt(path, account.username, int(time())):
         raise LoginThrottled(retry_after)
     if not verify_password(current_password, account.password_hash):
@@ -121,6 +132,7 @@ def change_password(
             user_id,
             password_hash=hash_password(new_password),
             verified_password_hash=account.password_hash,
+            verified_username=account.username,
         )
         is None
     ):

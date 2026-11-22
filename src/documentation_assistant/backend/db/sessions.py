@@ -44,19 +44,20 @@ def save_session(
     expires_at: int,
     *,
     verified_password_hash: str,
+    verified_username: str,
 ) -> bool:
     """Save a session only if its verified credential and account are still current.
 
     Serialize with password resets and deactivation. An in-flight login must
-    not create a valid token after its old credential has been reset.
+    not create a valid token after its password or login name has changed.
     """
     with connect(path) as connection:
         connection.execute("BEGIN IMMEDIATE")
         account = connection.execute(
-            "SELECT password_hash, is_active FROM users WHERE user_id = ?",
+            "SELECT password_hash, is_active, username FROM users WHERE user_id = ?",
             (str(user_id),),
         ).fetchone()
-        if account != (verified_password_hash, 1):
+        if account != (verified_password_hash, 1, verified_username):
             return False
         connection.execute("DELETE FROM user_sessions WHERE expires_at <= ?", (now,))
         connection.execute(
