@@ -65,6 +65,9 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
 - Session authentication resolves the token and current public account fields
   in one joined query and one connection, avoiding a second account lookup
   and unnecessary password-hash reads. Expiry and permission checks remain fresh.
+- SQLite indexes support account-wide session revocation, expired-session
+  cleanup, and expired login-attempt cleanup. Startup adds them to existing
+  databases without changing account, session, or audit records.
 - Report endpoints require a valid bearer token. Approval records the signed-in
   administrator's identity rather than a client-supplied reviewer name.
 - Account and session tables are added to the existing report database.

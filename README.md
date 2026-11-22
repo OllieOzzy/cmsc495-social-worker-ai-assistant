@@ -228,6 +228,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_account_setup.py
     │   ├── 🧪 test_account_audit_api.py
     │   ├── 🧪 test_auth_api.py
+    │   ├── 🧪 test_auth_indexes.py
     │   ├── 🧪 test_frontend_auth.py
     │   ├── 🧪 test_frontend_audit.py
     │   ├── 🧪 test_frontend_password_change.py

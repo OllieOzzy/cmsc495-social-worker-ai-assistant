@@ -240,6 +240,12 @@ connection. It selects only public identity fields, checks expiry and activation
 and reads the current role on every request. No password hash is needed for
 session verification, and permissions are not cached between requests.
 
+SQLite indexes on `user_sessions.user_id`, `user_sessions.expires_at`, and
+`login_attempts.window_started_at` support session revocation and expired-record
+cleanup as these tables grow. Startup creates missing indexes automatically
+for existing databases. Token and username lookups continue to use their
+existing primary-key indexes; session expiry and login limits are unchanged.
+
 Five unsuccessful attempts for the same normalized username within five
 minutes cause further attempts to return `429` with a `Retry-After` header.
 The counter persists across backend restarts and resets after a successful
