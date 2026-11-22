@@ -68,6 +68,8 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
 - SQLite indexes support account-wide session revocation, expired-session
   cleanup, and expired login-attempt cleanup. Startup adds them to existing
   databases without changing account, session, or audit records.
+- Account-filtered audit history uses a direct target predicate and the
+  existing target/event index, avoiding a full-table scan and extra sorting.
 - Report endpoints require a valid bearer token. Approval records the signed-in
   administrator's identity rather than a client-supplied reviewer name.
 - Account and session tables are added to the existing report database.

@@ -337,6 +337,11 @@ newest first by event ID. It requires an administrator and uses
 filters by a stable account UUID before pagination. No edit or delete operation
 is exposed for history.
 
+Target-filtered reads use a direct equality predicate and the existing
+`audit_events_target_id` index for filtering and newest-first ordering.
+Unfiltered reads use a separate query ordered by event ID. No additional
+index or database migration is required for this query optimization.
+
 The separate `audit_events` table in `dap.db` records account creation,
 renaming, activation/deactivation, role changes, password resets, and
 self-service password changes. Each entry includes a UTC timestamp, stable
