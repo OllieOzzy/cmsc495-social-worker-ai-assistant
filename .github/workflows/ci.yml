@@ -105,7 +105,7 @@ jobs:
       - name: Check formatting
         run: python -m ruff format --check .
 
-  # Bandit looks for common security issues in our backend code.
+  # Bandit looks for common security issues in backend and frontend code.
   python-security:
     name: Python Security
     runs-on: ubuntu-24.04
@@ -119,8 +119,10 @@ jobs:
           python-version: '3.12'
       - name: Install Bandit
         run: python -m pip install bandit==1.9.4
-      - name: Scan backend Python code
-        run: python -m bandit -r src/documentation_assistant/backend
+      - name: Scan backend and frontend Python code
+        run: >-
+          python -m bandit -r
+          src/documentation_assistant/backend src/documentation_assistant/frontend
 
   # Check our Python packages and their dependencies for known vulnerabilities.
   dependency-security:
