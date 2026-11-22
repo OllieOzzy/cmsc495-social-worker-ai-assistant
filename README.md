@@ -101,6 +101,11 @@ their own password after verifying the current one. The replacement must
 contain 15–1,024 characters. Successful changes revoke all sessions and return
 to login; they do not change report ownership or account permissions.
 
+Administrators can also use **Rename account** in Manage users to edit a
+username or display name. Username changes require confirmation and revoke
+all sessions; display-name changes keep sessions active. Account IDs, owned
+reports, and previously recorded approver names stay unchanged.
+
 Account setup and the launcher must use the same working directory and
 `DAP_DB_PATH`. Accounts, session hashes, and reports share the SQLite file.
 Existing reports remain unassigned and are visible only to administrators
@@ -203,6 +208,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_frontend_auth.py
     │   ├── 🧪 test_frontend_password_change.py
     │   ├── 🧪 test_frontend_user_management.py
+    │   ├── 🧪 test_frontend_user_rename.py
     │   ├── 🧪 test_frontend_recovery.py
     │   ├── 🧪 test_frontend_reports.py
     │   ├── 🧪 test_health_api.py
@@ -213,6 +219,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_report_permissions.py
     │   ├── 🧪 test_reports_api.py
     │   ├── 🧪 test_user_management_api.py
+    │   ├── 🧪 test_user_profile_api.py
     │   └── 🧪 test_users_db.py
     ├── 📁 llm/
     │   ├── 🧪 test_dap_quality.py

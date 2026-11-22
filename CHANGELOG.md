@@ -33,6 +33,11 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
   password and a confirmed replacement. Successful changes revoke all sessions.
 - Password changes share the login attempt limit and recheck the verified hash
   under the write lock, preventing stale changes from overwriting an admin reset.
+- Admin-only username and display-name editing in Manage users and
+  `PATCH /users/{user_id}/profile`. Username changes revoke sessions while
+  display-only edits keep them. IDs, reports, and past approver names are preserved.
+- Username rechecks prevent in-flight logins and password changes from
+  bypassing a concurrent username change.
 
 ### Changed
 

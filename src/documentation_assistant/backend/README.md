@@ -335,6 +335,25 @@ transaction also prevents deactivating the last active administrator, even
 when requests run concurrently. Keep `create-user --role admin` for initial
 setup; GUI management requires an administrator to already be signed in.
 
+`PATCH /users/{user_id}/profile` updates `username`, `display_name`, or both.
+At least one non-null field is required; role, password, and activation fields
+are not accepted. Names use the same validation as account creation. Duplicate
+usernames return `409`, missing accounts return `404`, and invalid profiles
+return `422`. Failed updates preserve both names and sessions.
+
+Changing the normalized username revokes every session and clears the old and
+new username's login-attempt windows in the same transaction. Login and
+password-change persistence recheck the verified username under the write
+lock to reject in-flight requests using the old name. Display-only edits, or
+case/whitespace changes that normalize to the same username, preserve sessions.
+Renaming an inactive account does not activate it.
+
+The account's `user_id`, password hash, role, and creation time are unchanged.
+Report ownership continues to use the stable account ID. Saved `approved_by`
+names remain historical snapshots; future approvals use the new display name.
+An administrator changing their own username must sign in again with the new
+name and their existing password.
+
 ## Start the Server
 
 ```shell
@@ -369,6 +388,7 @@ caching sensitive report content. PDF downloads use the same protection.
 | `POST /users` | Administrator only: creates a regular or administrator account. |
 | `PATCH /users/{user_id}` | Administrator only: activates or deactivates an account. |
 | `POST /users/{user_id}/reset-password` | Administrator only: replaces a password and revokes all account sessions. |
+| `PATCH /users/{user_id}/profile` | Administrator only: updates username or display name while preserving identity and report ownership. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
@@ -563,6 +583,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
 | Integration: accounts and sessions | Account provisioning, credential checks, token storage, logout, expiry, restart persistence, disabled accounts, and login throttling. |
 | Integration: user management | Admin-only account creation and listing, activation, session revocation, password privacy, and concurrent last-admin protection. |
+| Integration: account renaming | Validation, duplicate/conflicting names, stable ownership, historical approval names and PDFs, token revocation, display-only edits, rollback, and concurrent auth protection. |
 | Integration: password reset | Admin access, validation, session revocation, self-reset, preserved reports, atomic rollback, throttle recovery, and in-flight login protection. |
 | Integration: password change | Current-password verification, owner-only targeting, all-session revocation, throttling, demo credentials, and protection against concurrent reset or deactivation. |
 | Integration: ownership storage | Scoped reads, filtering before pagination, preserved ownership through review actions, legacy upgrades, explicit assignment, and account foreign keys. |

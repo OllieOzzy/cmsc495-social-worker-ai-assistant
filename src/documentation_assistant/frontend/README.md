@@ -331,6 +331,16 @@ characters, acknowledge that every session will be signed out, and select
 the same. Inactive accounts remain inactive. Resetting your own admin password
 returns you to the login screen; sign in with the new password.
 
+To edit names, select the account and expand **Rename account**. Update
+**New username**, **New display name**, or both, then select **Save account
+names**. A username change requires checking the session-revocation
+acknowledgement. The user signs in again with the new username and the same
+password. Changing your own admin username returns you to login too.
+
+Display-only edits keep sessions active and appear on the next session check.
+Names must satisfy the existing account rules; usernames must be unique.
+Report ownership, saved reports, and historical approver names are preserved.
+
 ### Service Status
 
 Streamlit checks FastAPI and Ollama when the report page opens and every
@@ -389,6 +399,7 @@ responses are mocked, so both suites run without a model download.
 | Account boundaries | Switching users cannot retain reports, filters, or PDF state; admin demotion clears previously visible reports. |
 | Role controls and expiry | Only admins see approval/reopening controls, other owners' reports are read-only for admins, and expired or revoked sessions return to login. |
 | User management | Admin GUI creation, immediate new-user login, activation changes, session revocation, reactivation, and disabled self-deactivation controls. |
+| Account renaming | New-name login, preserved report ownership, display-only changes without logout, and admin self-rename returning to login. |
 | Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
 | Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
