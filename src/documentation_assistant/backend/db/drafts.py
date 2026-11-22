@@ -13,6 +13,10 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from documentation_assistant.backend.db.connection import connect
+from documentation_assistant.backend.db.sessions import (
+    SessionWriteGuard,
+    require_write_session,
+)
 from documentation_assistant.backend.schemas.auth import UserAccount
 from documentation_assistant.backend.schemas.reports import (
     DraftSections,
@@ -40,11 +44,13 @@ def save_draft(
     metadata: ReportMetadata | None = None,
     *,
     owner_id: UUID | None = None,
+    write_session: SessionWriteGuard | None = None,
 ) -> StoredReportDraft:
     """Insert a draft owned by the supplied account and return it after commit.
 
-    None preserves unassigned legacy/internal reports during the authentication
-    rollout. Authenticated API creation must supply the signed-in account ID.
+    An omitted owner preserves unassigned legacy/internal reports. Authenticated
+    API creation supplies the signed-in account ID. AI routes also supply a
+    session guard, checked under the write lock before any report is inserted.
     """
     details = metadata.model_dump(mode="json") if metadata is not None else {}
     metadata_values = [details.get(field) for field in _METADATA_FIELDS]
@@ -56,6 +62,8 @@ def save_draft(
         metadata=_read_metadata(metadata_values),
     )
     with connect(path) as connection:
+        if write_session is not None:
+            require_write_session(connection, write_session, owner_id)
         # Only schema column names and generated placeholders are interpolated.
         connection.execute(
             f"""
@@ -206,8 +214,9 @@ def edit_draft(
     *,
     ai_assisted: bool = False,
     owner_id: UUID | None = None,
+    write_session: SessionWriteGuard | None = None,
 ) -> StoredReportDraft | None:
-    """Apply changes to a draft and return its incremented revision."""
+    """Apply changes and increment the revision, optionally guarding an AI session."""
     changes = edit.sections.model_dump() if edit.sections is not None else {}
     if edit.notes is not None:
         changes["notes"] = edit.notes
@@ -226,6 +235,7 @@ def edit_draft(
         tuple(changes.values()),
         check_time_range="start_time" in changes or "end_time" in changes,
         owner_id=owner_id,
+        write_session=write_session,
     )
 
 
@@ -282,6 +292,7 @@ def _update_review(
     require_complete: bool = False,
     check_time_range: bool = False,
     owner_id: UUID | None = None,
+    write_session: SessionWriteGuard | None = None,
 ) -> StoredReportDraft | None:
     """Update the matching draft revision and read it in the same transaction."""
     complete = (
@@ -289,6 +300,8 @@ def _update_review(
     )
     owner = str(owner_id) if owner_id is not None else None
     with connect(path) as connection:
+        if write_session is not None:
+            require_write_session(connection, write_session, owner_id)
         # Check status and revision in the UPDATE so stale requests cannot write.
         # The callers build assignments from schema fields or fixed approval SQL.
         updated = connection.execute(

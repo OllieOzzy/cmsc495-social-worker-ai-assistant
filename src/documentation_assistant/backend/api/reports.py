@@ -16,7 +16,12 @@ from fastapi import (
 )
 from starlette.concurrency import run_in_threadpool
 
-from documentation_assistant.backend.auth.dependencies import AdminUser, CurrentUser
+from documentation_assistant.backend.auth.dependencies import (
+    AdminUser,
+    BearerCredentials,
+    CurrentUser,
+)
+from documentation_assistant.backend.auth.service import token_digest
 from documentation_assistant.backend.db import (
     ReviewConflict,
     approve_draft,
@@ -26,6 +31,10 @@ from documentation_assistant.backend.db import (
     list_drafts,
     reopen_approved_report,
     save_draft,
+)
+from documentation_assistant.backend.db.sessions import (
+    InvalidWriteSession,
+    SessionWriteGuard,
 )
 from documentation_assistant.backend.export.pdf import render_report_pdf
 from documentation_assistant.backend.llm.ollama import (
@@ -136,23 +145,39 @@ async def generate_report(
     ],
     request: Request,
     user: CurrentUser,
+    credentials: BearerCredentials,
 ) -> ReportDraft:
-    """Generate DAP sections with Ollama and save them as an unapproved draft."""
+    """Generate DAP sections and save only while the initiating session remains valid."""
     metadata = (payload.metadata or ReportMetadata()).model_copy(
         update={"draft_source": "ai_assisted"}
     )
     _validate_session_times(metadata)
     sections = await _generate_sections(payload.notes, request.app.state.ollama_client)
     # Keep the synchronous SQLite write from blocking other async requests.
-    draft = await run_in_threadpool(
-        save_draft,
-        request.app.state.database_path,
-        payload.notes,
-        sections,
-        metadata,
-        owner_id=user.user_id,
-    )
+    try:
+        draft = await run_in_threadpool(
+            save_draft,
+            request.app.state.database_path,
+            payload.notes,
+            sections,
+            metadata,
+            owner_id=user.user_id,
+            write_session=SessionWriteGuard(
+                user.user_id, token_digest(credentials.credentials)
+            ),
+        )
+    except InvalidWriteSession as exc:
+        raise _invalid_write_session() from exc
     return ReportDraft(report_id=draft.report_id, sections=sections)
+
+
+def _invalid_write_session() -> HTTPException:
+    """Match normal authentication failures when inference outlives its session."""
+    return HTTPException(
+        401,
+        "Invalid or expired session. Please sign in.",
+        headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
+    )
 
 
 def _validate_session_times(
@@ -287,8 +312,9 @@ async def regenerate_report(
     ],
     request: Request,
     user: CurrentUser,
+    credentials: BearerCredentials,
 ) -> StoredReportDraft:
-    """Save corrected notes and regenerated DAP sections as a new revision."""
+    """Save regenerated sections only for a live session and current draft revision."""
     path = request.app.state.database_path
     current = await run_in_threadpool(get_draft, path, report_id, viewer=user)
     if current is None:
@@ -315,8 +341,18 @@ async def regenerate_report(
     try:
         # Check the revision again so AI output cannot overwrite a newer edit.
         report = await run_in_threadpool(
-            edit_draft, path, report_id, edit, ai_assisted=True, owner_id=user.user_id
+            edit_draft,
+            path,
+            report_id,
+            edit,
+            ai_assisted=True,
+            owner_id=user.user_id,
+            write_session=SessionWriteGuard(
+                user.user_id, token_digest(credentials.credentials)
+            ),
         )
+    except InvalidWriteSession as exc:
+        raise _invalid_write_session() from exc
     except InvalidSessionTimeRange as exc:
         raise HTTPException(422, str(exc)) from exc
     except ReviewConflict as exc:

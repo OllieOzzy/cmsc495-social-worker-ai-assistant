@@ -1,6 +1,9 @@
 """Persist hashed session tokens and bounded login attempts in SQLite."""
 
+import sqlite3
+from dataclasses import dataclass, field
 from pathlib import Path
+from time import time
 from uuid import UUID
 
 from documentation_assistant.backend.db.connection import connect
@@ -8,6 +11,40 @@ from documentation_assistant.backend.schemas.auth import UserAccount
 
 LOGIN_ATTEMPT_LIMIT = 5
 LOGIN_WINDOW_SECONDS = 300
+
+
+class InvalidWriteSession(ValueError):
+    """A request's session no longer authorizes its pending report write."""
+
+
+@dataclass(frozen=True)
+class SessionWriteGuard:
+    """Carry a request's account and token digest, never the raw bearer token."""
+
+    user_id: UUID
+    token_hash: str = field(repr=False)
+
+
+def require_write_session(
+    connection: sqlite3.Connection,
+    guard: SessionWriteGuard,
+    owner_id: UUID | None,
+) -> None:
+    """Lock and revalidate the live session in the report's write transaction.
+
+    Read the clock after acquiring the writer lock. Session revocation and
+    account changes cannot commit between this check and the report write.
+    The guard must belong to the owner supplied by the authenticated route.
+    """
+    connection.execute("BEGIN IMMEDIATE")
+    row = connection.execute(
+        """SELECT 1 FROM user_sessions AS s JOIN users AS u ON u.user_id = s.user_id
+           WHERE s.token_hash = ? AND s.user_id = ?
+             AND s.expires_at > ? AND u.is_active = 1""",
+        (guard.token_hash, str(guard.user_id), int(time())),
+    ).fetchone()
+    if row is None or owner_id != guard.user_id:
+        raise InvalidWriteSession("Invalid or expired session. Please sign in.")
 
 
 def reserve_login_attempt(path: Path, username: str, now: int) -> int:

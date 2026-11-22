@@ -13,6 +13,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 
 from documentation_assistant.backend.api import reports
 from documentation_assistant.backend.schemas.auth import UserAccount
@@ -32,6 +33,7 @@ NOTES = "Synthetic student practiced a breathing exercise."
 def api_request(tmp_path):
     """Supply the application state that the handlers read from a request."""
     return SimpleNamespace(
+        credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="t" * 43),
         user=UserAccount(
             user_id=uuid4(),
             username="user",
@@ -59,7 +61,10 @@ def test_generate_report_saves_valid_sections(monkeypatch, api_request):
 
     result = asyncio.run(
         reports.generate_report(
-            GenerateReportRequest(notes=NOTES), api_request, api_request.user
+            GenerateReportRequest(notes=NOTES),
+            api_request,
+            api_request.user,
+            api_request.credentials,
         )
     )
 
@@ -76,6 +81,10 @@ def test_generate_report_saves_valid_sections(monkeypatch, api_request):
         sections,
         ReportMetadata(draft_source="ai_assisted"),
         owner_id=api_request.user.user_id,
+        write_session=reports.SessionWriteGuard(
+            api_request.user.user_id,
+            reports.token_digest(api_request.credentials.credentials),
+        ),
     )
 
 
@@ -119,7 +128,10 @@ def test_generate_report_maps_upstream_failure(
     with pytest.raises(HTTPException) as error:
         asyncio.run(
             reports.generate_report(
-                GenerateReportRequest(notes=NOTES), api_request, api_request.user
+                GenerateReportRequest(notes=NOTES),
+                api_request,
+                api_request.user,
+                api_request.credentials,
             )
         )
 
@@ -197,7 +209,11 @@ def test_regeneration_maps_final_storage_failures(
     with pytest.raises(HTTPException) as error:
         asyncio.run(
             reports.regenerate_report(
-                current.report_id, payload, api_request, api_request.user
+                current.report_id,
+                payload,
+                api_request,
+                api_request.user,
+                api_request.credentials,
             )
         )
 
@@ -219,4 +235,11 @@ def test_regeneration_maps_final_storage_failures(
             revision=3, notes=NOTES, sections=sections, metadata=payload.metadata
         ),
     )
-    assert save.kwargs == {"ai_assisted": True, "owner_id": api_request.user.user_id}
+    assert save.kwargs == {
+        "ai_assisted": True,
+        "owner_id": api_request.user.user_id,
+        "write_session": reports.SessionWriteGuard(
+            api_request.user.user_id,
+            reports.token_digest(api_request.credentials.credentials),
+        ),
+    }
