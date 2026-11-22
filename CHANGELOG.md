@@ -92,6 +92,15 @@ This major release introduces authentication and account-based access.
 - Sensitive report JSON responses use `Cache-Control: no-store`, matching
   the existing PDF and authentication response protections.
 
+### Fixed
+
+- Idle frontend sessions verify server-side validity every 60 seconds and clear
+  private state when a session is revoked. Failed checks force a full-page
+  authentication gate, and recent full-page checks avoid duplicate requests.
+- AI generation and regeneration revalidate the initiating session inside the
+  report write transaction. Revoked, expired, or disabled sessions return `401`
+  without inserting a draft or changing an existing report.
+
 ### Setup Notes
 
 - Create accounts explicitly before signing in. Public demo credentials are

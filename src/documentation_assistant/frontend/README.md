@@ -286,7 +286,10 @@ local sign-out still clears the browser state and explains that server-side
 revocation could not be confirmed.
 
 Sessions last eight hours. Full app reruns verify the account with FastAPI;
-an expiry check also runs every 60 seconds while the page is open.
+the idle check also verifies server-side validity every 60 seconds while the
+page is open. It reuses a recent full-page verification to avoid a duplicate
+request. A failed idle check triggers a full-page login gate so cached report
+screens are hidden during an outage, while credentials remain available for retry.
 Expired sessions and backend `401` responses clear private state and return
 to login. Role changes also clear cached reports before rendering again.
 Tokens are sent on individual FastAPI requests, never stored in a shared
@@ -440,6 +443,7 @@ responses are mocked, so both suites run without a model download.
 | Account roles | Promotion and demotion with new-login permissions, session revocation, last-admin protection, and self-demotion returning to login. |
 | Account search | Name matching beyond the first page, reset pagination and selection, no matches, and clearing the query. |
 | Audit history | Authenticated actor attribution, public changes without credentials, returning to management, and transaction rollback when history cannot be saved. |
+| Idle session validity | Server revocation clears cached report and PDF state without a report action; recent verification is reused, and outages trigger the full-page login gate. |
 | Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
 | Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |

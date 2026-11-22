@@ -247,6 +247,12 @@ connection. It selects only public identity fields, checks expiry and activation
 and reads the current role on every request. No password hash is needed for
 session verification, and permissions are not cached between requests.
 
+AI generation and regeneration also validate the initiating token, account
+activity, expiry, and owner inside the report write transaction after inference.
+The write lock prevents account or session revocation from committing between
+that validation and the report write. Invalid sessions return `401` without
+creating a draft or changing the existing report, including its revision.
+
 SQLite indexes on `user_sessions.user_id`, `user_sessions.expires_at`, and
 `login_attempts.window_started_at` support session revocation and expired-record
 cleanup as these tables grow. Startup creates missing indexes automatically

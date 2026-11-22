@@ -247,7 +247,9 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_account_audit_api.py
     │   ├── 🧪 test_auth_api.py
     │   ├── 🧪 test_auth_indexes.py
+    │   ├── 🧪 test_ai_session_revocation.py
     │   ├── 🧪 test_frontend_auth.py
+    │   ├── 🧪 test_frontend_session_heartbeat.py
     │   ├── 🧪 test_frontend_audit.py
     │   ├── 🧪 test_frontend_password_change.py
     │   ├── 🧪 test_frontend_user_management.py
