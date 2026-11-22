@@ -396,7 +396,7 @@ manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 | Workflow Security | zizmor reports security findings. Scanner errors fail the job. |
 | Python Linting | Ruff checks for issues such as unused imports. |
 | Python Formatting | Ruff checks Python formatting. |
-| Python Security | Bandit scans the backend Python code. |
+| Python Security | Bandit scans backend and frontend Python code. |
 | Dependency Security | pip-audit checks the dependencies in `requirements.txt` for known vulnerabilities. |
 | Unit Tests | Pytest checks backend validation, Ollama response parsing, and frontend API handling, forms, routing, and actions. |
 | Integration Tests | Pytest checks authenticated FastAPI/SQLite workflows, account management and audit history, idle revocation, guarded AI writes, report actions, recovery, and PDF downloads. |

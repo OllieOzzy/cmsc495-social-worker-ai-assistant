@@ -76,6 +76,7 @@ This major release introduces authentication and account-based access.
 
 ### Changed
 
+- CI's Python Security job scans both backend and frontend code with Bandit.
 - Branch pushes build a candidate wheel after all regular checks pass and
   expose it as `app-wheel-candidate`. Cross-platform validation remains limited
   to PRs targeting `main`, pushes to `main`, and manual runs on `main`; the final
