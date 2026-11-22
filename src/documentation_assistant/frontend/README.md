@@ -359,7 +359,26 @@ The last active admin cannot be demoted. You may demote your own account if
 another active admin exists; this returns you to login. Promoting an inactive
 account leaves it inactive. Reports, ownership, and prior approvals are preserved.
 
+### Account Audit History
+
+In **Manage users**, turn on **Show audit history** to view account actions.
+The table shows newest actions first, with UTC time, actor and account IDs,
+username snapshots, action, and public before/after values. Names reflect the
+time of the action. CLI and other trusted local actions appear as **Local
+operation**, rather than being attributed to a signed-in user.
+
+Use **Previous events** and **Next events** for pages of 25. **Refresh history**
+returns to the newest entries. Turn off **Show audit history** to return to
+account management. History is fetched only while this view is open.
+
+Creation, name changes, activation changes, role changes, password resets, and
+self-service password changes are recorded. Password values, hashes, tokens,
+and report content are excluded. Failed changes and unchanged name, role, or
+activation saves do not add entries. Earlier actions from before this feature
+was installed are not reconstructed. Only administrators can read this history.
+
 ### Service Status
+
 
 Streamlit checks FastAPI and Ollama when the report page opens and every
 60 seconds while the session is active. The timer refreshes only the status
@@ -420,6 +439,7 @@ responses are mocked, so both suites run without a model download.
 | Account renaming | New-name login, preserved report ownership, display-only changes without logout, and admin self-rename returning to login. |
 | Account roles | Promotion and demotion with new-login permissions, session revocation, last-admin protection, and self-demotion returning to login. |
 | Account search | Name matching beyond the first page, reset pagination and selection, no matches, and clearing the query. |
+| Audit history | Authenticated actor attribution, public changes without credentials, returning to management, and transaction rollback when history cannot be saved. |
 | Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
 | Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |

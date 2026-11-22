@@ -318,6 +318,34 @@ Administrators can use Streamlit's **Manage users** screen or these endpoints:
   `{"is_active": true}` to reactivate. It does not accept role or password
   changes. A missing account returns `404`.
 
+### Account Audit History
+
+`GET /users/audit-events?limit=25&offset=0` returns committed account actions,
+newest first by event ID. It requires an administrator and uses
+`Cache-Control: no-store`. Pages allow 1–100 entries; optional `target_id`
+filters by a stable account UUID before pagination. No edit or delete operation
+is exposed for history.
+
+The separate `audit_events` table in `dap.db` records account creation,
+renaming, activation/deactivation, role changes, password resets, and
+self-service password changes. Each entry includes a UTC timestamp, stable
+actor and target IDs, username snapshots, and public before/after values.
+Only username, display name, role, and activation can appear in `changes`.
+Password actions have empty changes; no passwords, hashes, session tokens,
+source notes, or DAP text are recorded.
+
+The authenticated actor ID comes from the backend dependency, never the request
+body. CLI and trusted local storage operations have no signed-in actor and
+are labeled local operations. Account changes, session revocation, and audit
+insertion commit together: an audit failure rolls back the account mutation.
+Rejected changes and no-op name, role, or activation updates add no event.
+
+Startup adds the table to existing databases and preserves existing records;
+it does not reconstruct earlier actions. History is read-only through the app,
+but it is not tamper-proof against someone who can edit the SQLite file.
+
+### Password Recovery and Account Changes
+
 `POST /users/{user_id}/reset-password` accepts a replacement `password` of
 15–1,024 characters. It replaces the Argon2id hash, revokes every session, and
 clears the account's failed-login window in one transaction. Role, activation,
@@ -408,6 +436,7 @@ caching sensitive report content. PDF downloads use the same protection.
 | `POST /users/{user_id}/reset-password` | Administrator only: replaces a password and revokes all account sessions. |
 | `PATCH /users/{user_id}/profile` | Administrator only: updates username or display name while preserving identity and report ownership. |
 | `PATCH /users/{user_id}/role` | Administrator only: changes permissions, revokes sessions, and protects the last active admin. |
+| `GET /users/audit-events` | Administrator only: reads paginated account history, optionally filtered by target ID. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |

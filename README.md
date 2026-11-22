@@ -118,6 +118,15 @@ remain inactive; reports and approval history are preserved.
 
 Account setup and the launcher must use the same working directory and
 `DAP_DB_PATH`. Accounts, session hashes, and reports share the SQLite file.
+
+Administrators can turn on **Show audit history** in Manage users to review
+account creation, name and role changes, activation changes, and password
+resets or changes. Entries show the actor, target account, UTC time, and public
+before/after values. Passwords, hashes, tokens, and report content are excluded.
+History uses a separate `audit_events` table in the same database and is saved
+with each account change. CLI actions are labeled **Local operation**. Existing
+databases gain the table at startup; earlier actions are not reconstructed.
+
 Existing reports remain unassigned and are visible only to administrators
 through authenticated routes until explicitly assigned. Approved reports
 cannot be edited or deleted until an administrator reopens them.
@@ -177,6 +186,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
 │       │   │   └── 🐍 service.py
 │       │   ├── 📁 db/
 │       │   │   ├── 🐍 __init__.py
+│       │   │   ├── 🐍 audit.py
 │       │   │   ├── 🐍 connection.py
 │       │   │   ├── 🐍 drafts.py
 │       │   │   ├── 🐍 sessions.py
@@ -194,6 +204,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
 │       │   │       └── 📝 dap_generation.txt
 │       │   └── 📁 schemas/
 │       │       ├── 🐍 __init__.py
+│       │       ├── 🐍 audit.py
 │       │       ├── 🐍 auth.py
 │       │       └── 🐍 reports.py
 │       └── 📁 frontend/
@@ -202,6 +213,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
 │           ├── 🐍 account.py
 │           ├── 🐍 api_client.py
 │           ├── 🐍 app.py
+│           ├── 🐍 audit.py
 │           ├── 🐍 auth.py
 │           ├── 🐍 auth_state.py
 │           ├── 🐍 forms.py
@@ -214,8 +226,10 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     ├── 📁 integration/
     │   ├── 🐍 conftest.py
     │   ├── 🧪 test_account_setup.py
+    │   ├── 🧪 test_account_audit_api.py
     │   ├── 🧪 test_auth_api.py
     │   ├── 🧪 test_frontend_auth.py
+    │   ├── 🧪 test_frontend_audit.py
     │   ├── 🧪 test_frontend_password_change.py
     │   ├── 🧪 test_frontend_user_management.py
     │   ├── 🧪 test_frontend_user_rename.py
@@ -240,12 +254,14 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     ├── 📁 packaging/
     │   └── 🐍 check_installed_wheel.py
     └── 📁 unit/
+        ├── 🧪 test_audit.py
         ├── 🧪 test_auth_service.py
         ├── 🧪 test_db_connection.py
         ├── 🧪 test_drafts.py
         ├── 🧪 test_frontend_api_client.py
         ├── 🧪 test_frontend_account.py
         ├── 🧪 test_frontend_app.py
+        ├── 🧪 test_frontend_audit.py
         ├── 🧪 test_frontend_auth.py
         ├── 🧪 test_frontend_forms.py
         ├── 🧪 test_frontend_reports.py

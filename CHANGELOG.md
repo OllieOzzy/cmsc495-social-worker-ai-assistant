@@ -7,6 +7,16 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
 
 ### Added
 
+- Read-only administrator account audit history in Manage users and
+  `GET /users/audit-events`, with bounded newest-first pages and optional
+  target-account filtering in the API.
+- Transactional audit entries for account creation, renaming, role and
+  activation changes, admin password resets, and self-service password changes.
+  Entries retain stable actor/target IDs and username snapshots, UTC timestamps,
+  and allowlisted public changes. No credential values or report content are logged.
+- Automatic creation of the audit table in existing databases without
+  reconstructing past events. CLI actions are recorded as local operations.
+
 - Administrator account search by partial username or display name, with
   Unicode case-insensitive literal matching and backend pagination. Changing
   or clearing the query resets pagination and the selected account.
