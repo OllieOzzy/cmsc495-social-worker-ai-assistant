@@ -211,6 +211,47 @@ def check_handwritten_report(client: httpx.Client) -> None:
         == 200
     )
 
+    # Validate role management against the installed API, preserving report identity.
+    promoted = (
+        client.patch(
+            f"{_BACKEND_URL}/users/{saved['owner_id']}/role",
+            json={"role": "admin"},
+            headers=admin_headers,
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert promoted["user_id"] == saved["owner_id"]
+    assert promoted["role"] == "admin"
+    assert (
+        client.get(
+            f"{_BACKEND_URL}/auth/me",
+            headers={"Authorization": f"Bearer {renamed_login['access_token']}"},
+        ).status_code
+        == 401
+    )
+    fresh = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "renamed-user", "password": changed_password},
+        )
+        .raise_for_status()
+        .json()
+    )
+    promoted_headers = {"Authorization": f"Bearer {fresh['access_token']}"}
+    assert (
+        client.get(f"{_BACKEND_URL}/users", headers=promoted_headers).status_code == 200
+    )
+    client.patch(
+        f"{_BACKEND_URL}/users/{saved['owner_id']}/role",
+        json={"role": "user"},
+        headers=admin_headers,
+    ).raise_for_status()
+    assert (
+        client.get(f"{_BACKEND_URL}/auth/me", headers=promoted_headers).status_code
+        == 401
+    )
+
 
 def stop_launcher(process: subprocess.Popen) -> None:
     """Stop the launcher and its server processes after the check."""
@@ -275,7 +316,7 @@ def main() -> None:
         finally:
             stop_launcher(process)
     print(
-        "Installed dap-assistant verified login, permissions, PDF export, password recovery, password change, and account rename."
+        "Installed dap-assistant verified login, permissions, PDF export, password recovery, password change, account rename, and role changes."
     )
 
 
