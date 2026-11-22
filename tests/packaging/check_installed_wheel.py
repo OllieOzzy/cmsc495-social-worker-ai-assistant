@@ -1,4 +1,4 @@
-"""Verify the launcher and handwritten report workflow from an installed wheel.
+"""Verify installed account setup, permissions, report workflows, and audit history.
 
 CI runs this script directly with Python's -I option after installing the wheel
 in a fresh environment. It is not a pytest test: it starts real server processes

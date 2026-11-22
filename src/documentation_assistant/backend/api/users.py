@@ -1,4 +1,4 @@
-"""Administer account identity, activation, and password recovery without public signup."""
+"""Administer accounts, roles, passwords, and read-only account audit history."""
 
 from typing import Annotated
 from uuid import UUID

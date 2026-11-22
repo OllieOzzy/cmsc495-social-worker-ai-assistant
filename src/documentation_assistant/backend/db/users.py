@@ -1,4 +1,4 @@
-"""Manage account identity and activation in the existing SQLite database."""
+"""Manage account changes and their audit entries in the existing SQLite database."""
 
 import sqlite3
 from datetime import UTC, datetime

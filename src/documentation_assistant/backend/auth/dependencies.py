@@ -35,7 +35,7 @@ CurrentUser = Annotated[UserAccount, Depends(get_current_user)]
 
 
 def get_admin_user(user: CurrentUser) -> UserAccount:
-    """Require an authenticated administrator before report review actions."""
+    """Require an administrator for report review, user management, and audit reads."""
     if user.role != "admin":
         raise HTTPException(403, "Administrator access required.")
     return user

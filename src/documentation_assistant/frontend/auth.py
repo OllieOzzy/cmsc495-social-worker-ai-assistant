@@ -15,7 +15,7 @@ def _expire_if_needed() -> None:
 
 @st.fragment(run_every=60)
 def check_session_expiry() -> None:
-    """Check expiry while the page is open, even when no report action is used."""
+    """Check the local expiry deadline while the page is idle."""
     _expire_if_needed()
 
 

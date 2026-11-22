@@ -39,7 +39,7 @@ def _clear_user_search() -> None:
 
 
 def show_user_management() -> None:
-    """List a bounded page of accounts, create accounts, and change activation."""
+    """Search and manage accounts or open the administrator-only audit view."""
     if not is_admin():
         st.error("Administrator access required.")
         return
