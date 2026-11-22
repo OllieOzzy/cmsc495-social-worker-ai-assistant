@@ -9,9 +9,9 @@ AI-powered documentation assistant for school social workers, developed as a UMG
 
 ## Quick Start
 
-[Download and Watch the 1.1.0 Demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.1.0/demo110.mp4)
+[Watch the earlier 1.1.0 demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.1.0/demo110.mp4)
 
-Install Python 3.12, then download `dap_app-1.1.0-py3-none-any.whl` from the
+Install Python 3.12, then download `dap_app-2.0.0-py3-none-any.whl` from the
 **Assets** section of the [GitHub release](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases).
 Save the wheel in a folder you want to use for the app and open a terminal in that folder.
 
@@ -26,7 +26,8 @@ Once `py -3.12 --version` shows Python 3.12, run the commands below. If
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install .\dap_app-1.1.0-py3-none-any.whl
+.\.venv\Scripts\python.exe -m pip install .\dap_app-2.0.0-py3-none-any.whl
+.\.venv\Scripts\dap-assistant.exe init-demo-users
 .\.venv\Scripts\dap-assistant.exe
 ```
 
@@ -34,36 +35,53 @@ py -3.12 -m venv .venv
 
 ```sh
 python3.12 -m venv .venv
-./.venv/bin/python -m pip install ./dap_app-1.1.0-py3-none-any.whl
+./.venv/bin/python -m pip install ./dap_app-2.0.0-py3-none-any.whl
+./.venv/bin/dap-assistant init-demo-users
 ./.venv/bin/dap-assistant
 ```
 
-Open `http://127.0.0.1:8501` in your browser. Choose **Written by hand** to get
-started. For **AI-assisted draft**, start Ollama and install the default model
+The explicit demo setup above creates `admin` and `user`, both with password
+`password1234`, for synthetic-data demonstrations only. For a non-demo setup,
+replace `init-demo-users` with `create-user --role admin` and follow the prompts.
+See [Accounts and Permissions](#accounts-and-permissions) for roles and user management.
+
+Open `http://127.0.0.1:8501` in your browser, sign in, and choose **Written by hand**
+to get started. For **AI-assisted draft**, start Ollama and install the default model
 with `ollama pull qwen3:8b`. Follow the [local Ollama setup guide](docs/LOCAL-OLLAMA-SETUP.md)
 for platform-specific instructions.
 
 The app saves reports in `data/dap.db` under the folder where you launched it.
 Press **Ctrl+C** in the launch terminal to stop the app.
 
-### Upgrade from 1.0.0
+### Upgrade from 1.x to 2.0.0
 
 Stop the app before upgrading. Keep a backup of `data/dap.db` while the app
 is stopped, or back up the file selected by `DAP_DB_PATH` if you configured
 another location. Install the new wheel using the same environment's Python
 and the installation command above, then launch the app from the same working
 folder so it finds the existing database. Startup adds any missing schema
-columns without deleting saved reports.
+columns, account/audit tables, and indexes without deleting saved reports.
+
+**Breaking change:** all report endpoints now require authentication. Create
+the initial accounts using the same working folder and `DAP_DB_PATH`, then
+sign in. Existing API clients must call `POST /auth/login` and send
+`Authorization: Bearer <access_token>` on report requests. Approval and
+reopening require an administrator, and draft editing/deletion require ownership.
+
+Reports created in 1.x remain unassigned and visible only to admins. Setup and
+login do not automatically claim them. A trusted maintenance operation can use
+`assign_report_owner` to assign an unowned report; there is no ownership-assignment
+screen or public endpoint. See [Report Ownership Storage](src/documentation_assistant/backend/README.md#report-ownership-storage).
 
 The wheel includes the frontend, backend, PDF template, and generation prompt.
 Ollama and its model are installed separately and are only needed for AI-assisted
 drafting. See the [Ollama guide](docs/LOCAL-OLLAMA-SETUP.md) to choose another model.
 
-## Authentication on the Development Branch
+## Accounts and Permissions
 
-The published **1.1.0** wheel predates the authentication work. To test the
-authentication branch from source, use a Python 3.12 environment and run these
-commands from the repository root:
+Version **2.0.0** adds authentication, report ownership, role-based review,
+user management, and account audit history. For a source installation, use a
+Python 3.12 environment and run these commands from the repository root:
 
 ```shell
 python -m pip install -e .
@@ -132,7 +150,7 @@ through authenticated routes until explicitly assigned. Approved reports
 cannot be edited or deleted until an administrator reopens them.
 
 Sign out using the sidebar. Sessions expire after eight hours; logout and
-invalid sessions clear private browser-session state. FastAPI enforces report
+invalid sessions clear private browser-session state when detected. FastAPI enforces report
 permissions independently of the interface. API clients must sign in through
 `POST /auth/login` and send the returned bearer token on report requests.
 The health endpoint remains public for startup checks.
@@ -293,14 +311,14 @@ flowchart TD
     UI["Streamlit frontend<br/>Sign-in and report screens"]
     API["FastAPI backend<br/>Session and report permissions"]
     AI["Local Ollama"]
-    DB[("Local SQLite<br/>Accounts, sessions, and reports")]
+    DB[("Local SQLite<br/>Accounts, sessions, reports, and audit history")]
     PDF["PDF exporter"]
 
     Worker -->|"Enter notes or start a manual draft"| UI
     UI -->|"Show source notes and DAP for review"| Worker
     UI <-->|"Report requests, responses, and PDFs"| API
     API <-->|"Generate DAP from source notes"| AI
-    API <-->|"Store and retrieve notes and reports"| DB
+    API <-->|"Accounts, reports, and audit records"| DB
     API <-->|"Export a saved draft or approved report"| PDF
 
     classDef user fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:2px
@@ -346,7 +364,7 @@ flowchart TD
     Linux --> Validated
     Mac --> Validated
     Validated --> ReleaseEligible{"Push or manual run<br/>on main?"}
-    ReleaseEligible -->|"Yes"| Upload["Upload dap-app-1.1.0.zip"]
+    ReleaseEligible -->|"Yes"| Upload["Upload dap-app-2.0.0.zip"]
     ReleaseEligible -->|"Pull request"| Ready["PR wheel validation complete"]
 
     classDef trigger fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:2px
@@ -398,7 +416,7 @@ To prepare a release, run **CI Pipeline** manually on `main`. After the wheel
 checks pass, download `dap-app-<version>` from **Artifacts** and extract the
 `.whl` for the GitHub Release.
 
-Before publishing `1.1.0`, verify the final commit on `main` with both workflows.
+Before publishing `2.0.0`, verify the final commit on `main` with both workflows.
 Enable the optional DAP quality cases in **Live Ollama Test**. CI uses
 `qwen3:4b`, while the app defaults to `qwen3:8b`; also review representative
 drafts locally with the model you intend to demonstrate.
@@ -406,7 +424,8 @@ drafts locally with the model you intend to demonstrate.
 Install the validated wheel in a separate environment and walk through
 creation, saving, reopening, editing, approval, and PDF export. Check backend
 and Ollama outage recovery, and verify that unsaved browser form edits survive
-status-panel checks and automatic refreshes. Tag the verified commit `1.1.0`
+status-panel checks and automatic refreshes. Also verify both roles, account
+management, session revocation, and audit history. Tag the verified commit `2.0.0`
 and attach its validated wheel to the GitHub Release. The workflows upload
 artifacts; they do not create a release or publish to a package registry.
 
@@ -507,24 +526,21 @@ Official repositories and documentation for the tools used in this project:
 - [GitHub Actions documentation](https://docs.github.com/en/actions) — Configuring CI workflows and automated checks.
 - [Ruff documentation](https://docs.astral.sh/ruff/) — Checking Python code quality and formatting.
 
-## Release 1.1.0
+## Release 2.0.0
 
-See the [changelog](CHANGELOG.md) for the changes since `1.0.0` and upgrade notes.
+Version 2.0.0 introduces authenticated, account-based access. See the
+[changelog](CHANGELOG.md) for the changes since `1.1.0` and the upgrade notes above.
 
-- **Automated frontend and expanded backend tests.** Cover form validation,
-  report review, backend recovery, session times, and concurrent report changes.
-- **Service status caching.** Reuse status results for 60 seconds while keeping
-  startup checks, automatic refresh, and immediate manual retries.
-- **Database startup initialization.** Create or upgrade the schema once at
-  startup instead of checking it during every storage operation.
-- **Paginated report history.** Browse 25 reports per page with Previous and Next
-  controls. API consumers can use `limit` and `offset` query parameters.
-- **HTTP connection reuse.** Reuse the backend Ollama client and frontend
-  clients within each browser session, with cleanup when they are released.
-- **Actionable validation errors.** Show session-time and field-validation
-  explanations while preserving pending edits after a rejected save.
-- **Local proxy bypass.** Connect directly to loopback backends while retaining
-  environment proxy support for remote backends.
+- **Accounts and sessions.** Argon2id passwords, revocable eight-hour sessions,
+  login throttling, and explicit local account setup.
+- **Report permissions.** Users see their own reports; admins can review all
+  reports and approve or reopen them. Owners control draft editing and deletion.
+- **User management.** Admin account creation, search, activation, renaming,
+  role changes, and password reset, plus self-service password changes.
+- **Account audit history.** Transactional records of account actions, excluding
+  credentials and report content, with an admin-only history view.
+- **Authentication optimizations.** One-query session verification, indexes
+  for revocation and cleanup, and indexed account-filtered audit reads.
 
 ## Future Improvements
 

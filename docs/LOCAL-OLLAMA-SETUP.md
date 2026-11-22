@@ -281,8 +281,14 @@ requires checking its structured output and reviewing draft quality. The
 GitHub live workflow uses `qwen3:4b` for its runner tests; that does not change
 the app's local default.
 
-To try the app's generation workflow, start FastAPI and send synthetic
-notes to `POST /reports/generate` through Swagger. To run automated live
+In 2.0.0, report endpoints require an authenticated account. Create initial
+accounts against the backend's database, then start FastAPI and open `/docs`.
+Execute `POST /auth/login`, copy the returned `access_token`, and paste it into
+Swagger's **Authorize** bearer-token field. Send synthetic notes to
+`POST /reports/generate`; the draft belongs to the signed-in user. See the
+[account setup guide](../src/documentation_assistant/backend/README.md#local-account-setup).
+
+To run automated live
 tests, keep Ollama running with the configured model installed and follow
 the [backend test instructions](../src/documentation_assistant/backend/README.md#tests).
 

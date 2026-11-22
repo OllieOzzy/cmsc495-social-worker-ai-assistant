@@ -1,6 +1,6 @@
 # FastAPI Backend
 
-The FastAPI backend supports manual and AI-assisted DAP drafts, searchable
+The 2.0.0 FastAPI backend supports manual and AI-assisted DAP drafts, searchable
 report history, review and approval, and PDF downloads. It saves source notes
 and reports in SQLite and uses local Ollama for AI generation. Use synthetic
 student data for development and testing.
@@ -13,14 +13,16 @@ flowchart TD
     UI["Streamlit frontend"]
 
     subgraph API["FastAPI backend"]
-        Routes["Health, authentication, and report routes<br/>Pydantic validation"]
+        Routes["Health, accounts, and report routes<br/>Pydantic validation"]
         Auth["Account sessions<br/>Identity and role checks"]
+        Accounts["User management<br/>Account audit history"]
         LLM["Ollama client<br/>DAP generation prompt"]
         Store["Report storage<br/>Revision and approval checks"]
         PDF["PDF renderer<br/>School DAP template"]
 
         Routes -->|"Generate or regenerate"| LLM
         Routes -->|"Authenticate report requests"| Auth
+        Routes -->|"Admin account actions"| Accounts
         Routes -->|"Save or load reports"| Store
         Routes -->|"Export"| PDF
         Store -->|"Saved report"| PDF
@@ -33,6 +35,7 @@ flowchart TD
     LLM <-->|"POST /api/chat"| Ollama
     Store <--> SQLite
     Auth <--> SQLite
+    Accounts <--> SQLite
 
     classDef frontend fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
     classDef backend fill:#EDE9FE,stroke:#7C3AED,color:#4C1D95
@@ -43,7 +46,7 @@ flowchart TD
     class UI frontend
     class Routes,Auth backend
     class LLM,Ollama ai
-    class Store,SQLite storage
+    class Store,Accounts,SQLite storage
     class PDF export
     style API fill:#FDF4FF,stroke:#E879F9,color:#000000
 ```
@@ -59,10 +62,10 @@ flowchart LR
         App["Application entry point<br/>main.py"]
         Reports["Report router<br/>api/reports.py"]
         AuthRouter["Authentication router<br/>api/auth.py"]
-        UserRouter["User management router<br/>GET/POST /users · PATCH /users/{user_id}"]
+        UserRouter["User management router<br/>Accounts, roles, passwords, and audit history"]
         Auth["Account and session services<br/>Argon2 verification and role checks"]
         AuthRoutes["POST /auth/login · GET /auth/me<br/>POST /auth/logout · POST /auth/change-password"]
-        Schemas["Pydantic validation<br/>schemas/reports.py"]
+        Schemas["Pydantic validation<br/>Reports, accounts, and audit events"]
 
         subgraph Routes["API endpoints"]
             Health["GET /health"]
@@ -79,6 +82,7 @@ flowchart LR
             LLM["Ollama client<br/>llm/ollama.py"]
             Prompt["DAP generation prompt<br/>dap_generation.txt"]
             Store["Report storage and revision checks<br/>db/drafts.py · db/connection.py"]
+            Accounts["Account storage and transactional history<br/>db/users.py · db/audit.py"]
             PDF["PDF renderer<br/>export/pdf.py"]
         end
 
@@ -87,6 +91,8 @@ flowchart LR
         App --> AuthRouter
         App --> UserRouter
         UserRouter -->|"Require administrator"| Auth
+        UserRouter --> Accounts
+        AuthRoutes -->|"Record own password change"| Accounts
         AuthRouter --> AuthRoutes
         AuthRoutes --> Auth
         Reports -->|"Require signed-in user or administrator"| Auth
@@ -117,6 +123,7 @@ flowchart LR
     LLM <-->|"POST /api/chat"| Ollama
     Store <--> DB
     Auth <--> DB
+    Accounts <--> DB
     Template -->|"Base form for the first page"| PDF
 
     classDef frontend fill:#DBEAFE,stroke:#2563EB,color:#1E3A8A
@@ -128,7 +135,7 @@ flowchart LR
     class UI frontend
     class App,Docs,Reports,AuthRouter,UserRouter,Auth,AuthRoutes,Schemas,Health,Manual,Generate,Read,Edit,Regenerate,Review backend
     class LLM,Prompt,Ollama ai
-    class Store,DB storage
+    class Store,Accounts,DB storage
     class Download,PDF,Template export
     style API fill:#FDF4FF,stroke:#E879F9,color:#000000
 ```
@@ -170,8 +177,8 @@ python -m pip install -r requirements.txt
 
 ## Local Account Setup
 
-Account setup, backend login, report ownership, and administrator-only review
-are available on the authentication branch. All report endpoints require a
+Version 2.0.0 includes account setup, backend login, report ownership, and
+administrator-only review. All report endpoints require a
 valid bearer session. Sign in through Streamlit, or use `/docs` and its
 **Authorize** button to test the backend directly.
 

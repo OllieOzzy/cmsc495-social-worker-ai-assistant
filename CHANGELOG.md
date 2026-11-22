@@ -1,9 +1,23 @@
 # Changelog
 
 Major changes to the DAP Documentation Assistant. Versions use release tags
-such as `1.0.0` and `1.1.0`, without a `v` prefix.
+such as `1.0.0`, `1.1.0`, and `2.0.0`, without a `v` prefix.
 
-## Unreleased
+## 2.0.0
+
+This major release introduces authentication and account-based access.
+
+### Breaking Changes and Upgrade
+
+- Report endpoints now require a bearer session. Existing clients must sign in
+  with `POST /auth/login` before accessing reports.
+- Approval and reopening require an admin; draft editing and deletion require
+  ownership. Administrators can review all reports but cannot edit another
+  user's draft content.
+- Back up the database with the app stopped, install the 2.0.0 wheel, and create
+  the initial accounts against the same `DAP_DB_PATH` and working directory.
+- Older reports remain unassigned and admin-visible. No automatic ownership
+  assignment occurs; explicit assignment is a trusted maintenance operation.
 
 ### Added
 

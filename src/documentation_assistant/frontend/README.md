@@ -1,6 +1,6 @@
 # Streamlit Frontend
 
-The frontend lets school social workers create, review, and download Data,
+The 2.0.0 frontend lets school social workers sign in, create, review, and download Data,
 Assessment, and Plan (DAP) reports. It sends report requests to FastAPI.
 
 ## Overview Diagram
@@ -13,7 +13,7 @@ flowchart TD
     subgraph Streamlit["Streamlit frontend"]
         UI["Streamlit<br/>app.py"]
         UI --> Sidebar["Service status<br/>and report history<br/>Checks on startup<br/>and every 60 seconds"]
-        UI --> Form["New report and<br/>review screens"]
+        UI --> Form["Report and<br/>account screens"]
         UI --> Menu["App menu<br/>About and Contacts"]
         Sidebar --> Client["Frontend API<br/>client"]
         Form --> Client
@@ -48,7 +48,7 @@ flowchart LR
         Start["Open the app"]
         Login["Sign in<br/>Verify session before rendering reports"]
         Password["Change own password<br/>Verify current password and confirm replacement"]
-        ManageUsers["Manage users · Admin only<br/>List, create, activate, and deactivate"]
+        ManageUsers["Manage users · Admin only<br/>Search, create, rename, change roles<br/>Activation, password reset, and audit history"]
         Logout["Sign out or session expires<br/>Clear reports, forms, filters, and token"]
         Status["Backend Status and AI Status<br/>Check on startup, every 60 seconds, and on click"]
         Offline["Backend Status turns red<br/>Connection error appears below the buttons"]
@@ -107,7 +107,7 @@ flowchart LR
     subgraph API["FastAPI endpoints"]
         HealthAPI["GET /health"]
         AuthAPI["POST /auth/login<br/>GET /auth/me<br/>POST /auth/logout<br/>POST /auth/change-password"]
-        UsersAPI["GET/POST /users<br/>PATCH /users/{user_id}"]
+        UsersAPI["Account management<br/>/users · profile · role · reset-password<br/>GET /users/audit-events"]
         ListAPI["GET /reports"]
         ManualAPI["POST /reports/manual"]
         GenerateAPI["POST /reports/generate"]
@@ -286,7 +286,7 @@ local sign-out still clears the browser state and explains that server-side
 revocation could not be confirmed.
 
 Sessions last eight hours. Full app reruns verify the account with FastAPI;
-an expiry check also runs every 60 seconds while the report page is open.
+an expiry check also runs every 60 seconds while the page is open.
 Expired sessions and backend `401` responses clear private state and return
 to login. Role changes also clear cached reports before rendering again.
 Tokens are sent on individual FastAPI requests, never stored in a shared
