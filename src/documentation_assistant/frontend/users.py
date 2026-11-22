@@ -10,19 +10,19 @@ _PAGE_SIZE = 25
 
 
 def show_admin_navigation() -> bool:
-    """Toggle an admin-only screen while keeping the selected saved report."""
+    """Render admin navigation in the caller's container, preserving other account views."""
     if not is_admin():
-        st.session_state.pop("app_view", None)
+        if st.session_state.get("app_view") == "users":
+            st.session_state.pop("app_view", None)
         return False
     selected = st.session_state.get("app_view") == "users"
-    with st.sidebar:
-        if st.button(
-            "Back to reports" if selected else "Manage users",
-            key="manage_users",
-            icon=":material/manage_accounts:",
-        ):
-            st.session_state["app_view"] = "reports" if selected else "users"
-            st.rerun()
+    if st.button(
+        "Back to reports" if selected else "Manage users",
+        key="manage_users",
+        icon=":material/manage_accounts:",
+    ):
+        st.session_state["app_view"] = "reports" if selected else "users"
+        st.rerun()
     return selected
 
 

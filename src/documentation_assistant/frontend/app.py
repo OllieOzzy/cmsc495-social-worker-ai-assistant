@@ -33,7 +33,10 @@ if app_url := st.context.url:
     )
 
 st.set_page_config(
-    page_title="DAP Documentation Assistant", layout="wide", menu_items=menu_items
+    page_title="DAP Documentation Assistant",
+    layout="wide",
+    initial_sidebar_state=420,
+    menu_items=menu_items,
 )
 
 # Serve the contacts page before rendering report navigation.
@@ -56,11 +59,15 @@ st.title("DAP Documentation Assistant")
 if not require_login():
     st.stop()
 
-if show_password_navigation():
+with st.sidebar, st.container(horizontal=True, gap="small"):
+    password_view = show_password_navigation()
+    users_view = show_admin_navigation()
+
+if password_view:
     show_password_change()
     st.stop()
 
-if show_admin_navigation():
+if users_view:
     show_user_management()
     st.stop()
 

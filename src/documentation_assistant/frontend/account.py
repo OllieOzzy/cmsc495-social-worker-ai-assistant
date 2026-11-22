@@ -7,18 +7,17 @@ from .auth_state import clear_session
 
 
 def show_password_navigation() -> bool:
-    """Open account settings without mixing them into report or admin forms."""
+    """Render account navigation in the caller's container and preserve saved reports."""
     if not st.session_state.get("auth_user"):
         return False
     selected = st.session_state.get("app_view") == "password"
-    with st.sidebar:
-        if st.button(
-            "Back to reports" if selected else "Change password",
-            key="password_settings",
-            icon=":material/lock:",
-        ):
-            st.session_state["app_view"] = "reports" if selected else "password"
-            st.rerun()
+    if st.button(
+        "Back to reports" if selected else "Change password",
+        key="password_settings",
+        icon=":material/lock:",
+    ):
+        st.session_state["app_view"] = "reports" if selected else "password"
+        st.rerun()
     return selected
 
 

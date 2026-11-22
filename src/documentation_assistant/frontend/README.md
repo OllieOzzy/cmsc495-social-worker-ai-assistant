@@ -309,7 +309,9 @@ to leave settings without changing your password or selected saved report.
 
 ### Manage Users
 
-Administrators have a **Manage users** button in the sidebar. The screen lists
+Administrators have a **Manage users** button to the right of **Change password**
+in the sidebar. The sidebar starts at 420 pixels wide on desktop and can still
+be resized. The screen lists
 accounts in pages of 25, with username, display name, role, and activation status.
 Use **Previous users** and **Next users** to browse; **Back to reports** returns
 to the report screens.
