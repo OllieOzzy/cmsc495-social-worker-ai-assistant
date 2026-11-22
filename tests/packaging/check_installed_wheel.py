@@ -172,10 +172,41 @@ def check_handwritten_report(client: httpx.Client) -> None:
         client.get(f"{_BACKEND_URL}/auth/me", headers=recovered_headers).status_code
         == 401
     )
-    assert (
+    changed = (
         client.post(
             f"{_BACKEND_URL}/auth/login",
             json={"username": "user", "password": changed_password},
+        )
+        .raise_for_status()
+        .json()
+    )
+    changed_headers = {"Authorization": f"Bearer {changed['access_token']}"}
+    renamed = (
+        client.patch(
+            f"{_BACKEND_URL}/users/{saved['owner_id']}/profile",
+            json={"username": "renamed-user", "display_name": "Renamed User"},
+            headers=admin_headers,
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert renamed["user_id"] == saved["owner_id"]
+    assert (
+        client.get(f"{_BACKEND_URL}/auth/me", headers=changed_headers).status_code
+        == 401
+    )
+    renamed_login = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "renamed-user", "password": changed_password},
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert (
+        client.get(
+            report_url,
+            headers={"Authorization": f"Bearer {renamed_login['access_token']}"},
         ).status_code
         == 200
     )
@@ -244,7 +275,7 @@ def main() -> None:
         finally:
             stop_launcher(process)
     print(
-        "Installed dap-assistant verified login, permissions, PDF export, logout, password reset, and password change."
+        "Installed dap-assistant verified login, permissions, PDF export, password recovery, password change, and account rename."
     )
 
 
