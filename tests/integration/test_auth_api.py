@@ -1,12 +1,14 @@
 """Exercise real password verification and SQLite sessions through FastAPI."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
 
 from documentation_assistant.backend.auth import service
 from documentation_assistant.backend.auth.passwords import hash_password
+from documentation_assistant.backend.db import sessions
 from documentation_assistant.backend.db.connection import connect, initialize_database
 from documentation_assistant.backend.db.sessions import reserve_login_attempt
 from documentation_assistant.backend.db.users import create_user
@@ -123,6 +125,30 @@ def test_logout_revokes_only_the_supplied_session(client):
     assert response.content == b""
     assert client.get("/auth/me", headers=authorization(first)).status_code == 401
     assert client.get("/auth/me", headers=authorization(second)).status_code == 200
+
+
+def test_account_endpoint_resolves_session_with_one_database_read(client, monkeypatch):
+    """Exercise the real dependency and count session reads after login is complete."""
+    login = sign_in(client).json()
+    statements, opened = [], []
+    original = sessions.connect
+
+    @contextmanager
+    def traced_connect(path):
+        """Trace the session connection without replacing real SQL or authentication."""
+        opened.append(path)
+        with original(path) as connection:
+            connection.set_trace_callback(statements.append)
+            yield connection
+
+    monkeypatch.setattr(sessions, "connect", traced_connect)
+    response = client.get("/auth/me", headers=authorization(login["access_token"]))
+    assert response.status_code == 200
+    assert response.json() == login["user"]
+    assert len(opened) == 1
+    reads = [sql for sql in statements if sql.lstrip().upper().startswith("SELECT")]
+    assert len(reads) == 1 and "JOIN users" in reads[0]
+    assert "password_hash" not in reads[0]
 
 
 def test_expiry_boundary_and_pruning_expired_sessions(client, auth_database):
