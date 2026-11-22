@@ -71,19 +71,22 @@ def list_audit_events(
     """Read newest events first, optionally scoped to a stable target account ID."""
     if not 1 <= limit <= 100 or offset < 0:
         raise ValueError("Invalid audit page bounds.")
+    # A direct predicate lets SQLite use the target/event index. The optional
+    # ``? IS NULL OR ...`` form forces a scan even when a target is supplied.
+    if target_id is None:
+        query = """SELECT event_id, occurred_at, actor_id, actor_username,
+                          target_id, target_username, action, changes
+                   FROM audit_events
+                   ORDER BY event_id DESC LIMIT ? OFFSET ?"""
+        parameters = (limit, offset)
+    else:
+        query = """SELECT event_id, occurred_at, actor_id, actor_username,
+                          target_id, target_username, action, changes
+                   FROM audit_events WHERE target_id = ?
+                   ORDER BY event_id DESC LIMIT ? OFFSET ?"""
+        parameters = (str(target_id), limit, offset)
     with connect(path) as connection:
-        rows = connection.execute(
-            """SELECT event_id, occurred_at, actor_id, actor_username,
-                      target_id, target_username, action, changes
-               FROM audit_events WHERE (? IS NULL OR target_id = ?)
-               ORDER BY event_id DESC LIMIT ? OFFSET ?""",
-            (
-                str(target_id) if target_id else None,
-                str(target_id) if target_id else None,
-                limit,
-                offset,
-            ),
-        ).fetchall()
+        rows = connection.execute(query, parameters).fetchall()
     return [
         AuditEvent(
             event_id=row[0],
