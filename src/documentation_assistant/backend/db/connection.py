@@ -48,7 +48,7 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
 
 
 def initialize_database(path: Path) -> None:
-    """Create report and account tables and upgrade missing report columns."""
+    """Create report, account, and audit tables and upgrade missing report columns."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect(path) as connection:
         connection.execute("""
@@ -116,6 +116,24 @@ def initialize_database(path: Path) -> None:
         """)
         connection.execute(
             "CREATE INDEX IF NOT EXISTS report_drafts_owner_id ON report_drafts(owner_id)"
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS audit_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                occurred_at TEXT NOT NULL,
+                actor_id TEXT,
+                actor_username TEXT,
+                target_id TEXT NOT NULL,
+                target_username TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN (
+                    'account_created', 'account_renamed', 'account_activated',
+                    'account_deactivated', 'role_changed', 'password_reset', 'password_changed'
+                )),
+                changes TEXT NOT NULL
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS audit_events_target_id ON audit_events(target_id, event_id DESC)"
         )
 
 

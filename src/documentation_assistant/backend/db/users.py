@@ -5,7 +5,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
+from documentation_assistant.backend.db.audit import record_account_event
 from documentation_assistant.backend.db.connection import connect
+from documentation_assistant.backend.schemas.audit import AuditChange
 from documentation_assistant.backend.schemas.auth import (
     StoredUserAccount,
     UserAccount,
@@ -52,7 +54,7 @@ def list_users(
 
 
 def set_user_active(
-    path: Path, user_id: UUID, *, is_active: bool
+    path: Path, user_id: UUID, *, is_active: bool, actor_id: UUID | None = None
 ) -> UserAccount | None:
     """Change activation atomically and revoke sessions when disabling an account.
 
@@ -86,10 +88,22 @@ def set_user_active(
             connection.execute(
                 "DELETE FROM user_sessions WHERE user_id = ?", (str(user_id),)
             )
+        if account.is_active != is_active:
+            record_account_event(
+                connection,
+                actor_id=actor_id,
+                target=account,
+                action="account_activated" if is_active else "account_deactivated",
+                changes={
+                    "is_active": AuditChange(before=account.is_active, after=is_active)
+                },
+            )
     return account.model_copy(update={"is_active": is_active})
 
 
-def set_user_role(path: Path, user_id: UUID, *, role: UserRole) -> UserAccount | None:
+def set_user_role(
+    path: Path, user_id: UUID, *, role: UserRole, actor_id: UUID | None = None
+) -> UserAccount | None:
     """Change permissions and revoke sessions, preserving identity and reports.
 
     Serialize with activation changes so simultaneous demotions and
@@ -124,6 +138,13 @@ def set_user_role(path: Path, user_id: UUID, *, role: UserRole) -> UserAccount |
         connection.execute(
             "DELETE FROM user_sessions WHERE user_id = ?", (str(user_id),)
         )
+        record_account_event(
+            connection,
+            actor_id=actor_id,
+            target=account,
+            action="role_changed",
+            changes={"role": AuditChange(before=account.role, after=role)},
+        )
     return account.model_copy(update={"role": role})
 
 
@@ -147,6 +168,7 @@ def reset_user_password(
     password_hash: str,
     verified_password_hash: str | None = None,
     verified_username: str | None = None,
+    actor_id: UUID | None = None,
 ) -> UserAccount | None:
     """Replace an encoded password and revoke all sessions in one transaction.
 
@@ -188,6 +210,14 @@ def reset_user_password(
         connection.execute(
             "DELETE FROM login_attempts WHERE username = ?", (account.username,)
         )
+        record_account_event(
+            connection,
+            actor_id=actor_id,
+            target=account,
+            action="password_changed"
+            if verified_password_hash is not None
+            else "password_reset",
+        )
     return account
 
 
@@ -197,6 +227,7 @@ def rename_user(
     *,
     username: str | None = None,
     display_name: str | None = None,
+    actor_id: UUID | None = None,
 ) -> UserAccount | None:
     """Rename identity, preserving reports and historical approval snapshots.
 
@@ -236,6 +267,21 @@ def rename_user(
                     "DELETE FROM login_attempts WHERE username IN (?, ?)",
                     (current.username, updated.username),
                 )
+            changes = {
+                field: AuditChange(
+                    before=getattr(current, field), after=getattr(updated, field)
+                )
+                for field in ("username", "display_name")
+                if getattr(current, field) != getattr(updated, field)
+            }
+            if changes:
+                record_account_event(
+                    connection,
+                    actor_id=actor_id,
+                    target=updated,
+                    action="account_renamed",
+                    changes=changes,
+                )
         return updated
     except sqlite3.IntegrityError as exc:
         if exc.sqlite_errorcode == sqlite3.SQLITE_CONSTRAINT_UNIQUE:
@@ -250,6 +296,7 @@ def create_user(
     display_name: str,
     password_hash: str,
     role: UserRole = "user",
+    actor_id: UUID | None = None,
 ) -> StoredUserAccount:
     """Save an account with an already encoded hash and return it after commit.
 
@@ -282,6 +329,16 @@ def create_user(
                     int(account.is_active),
                     account.created_at.isoformat(),
                 ),
+            )
+            record_account_event(
+                connection,
+                actor_id=actor_id,
+                target=account,
+                action="account_created",
+                changes={
+                    field: AuditChange(before=None, after=getattr(account, field))
+                    for field in ("username", "display_name", "role", "is_active")
+                },
             )
     except sqlite3.IntegrityError as exc:
         # Translate only a uniqueness violation, not unrelated storage failures.

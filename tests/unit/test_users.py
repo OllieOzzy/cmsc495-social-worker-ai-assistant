@@ -30,7 +30,11 @@ def test_create_user_binds_normalized_values_and_encoded_hash(database):
         password_hash="synthetic-encoded-hash",
     )
 
-    sql, values = database.execute.call_args.args
+    sql, values = next(
+        call.args
+        for call in database.execute.call_args_list
+        if "INSERT INTO users" in call.args[0]
+    )
     assert "INSERT INTO users" in sql
     assert "synthetic-encoded-hash" not in sql
     assert values == (

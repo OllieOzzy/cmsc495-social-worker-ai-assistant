@@ -52,14 +52,13 @@ def test_initialize_database_creates_directory_and_checks_schema(monkeypatch, tm
 
     assert path.parent.is_dir()
     sqlite_connect.assert_called_once_with(path)
-    enable_keys, create, inspect, create_users, sessions, attempts, owner_index = (
-        db.execute.call_args_list
-    )
+    enable_keys, create, inspect, *setup = db.execute.call_args_list
     assert enable_keys.args[0] == "PRAGMA foreign_keys = ON"
     assert "CREATE TABLE IF NOT EXISTS report_drafts" in create.args[0]
     assert "pragma_table_info" in inspect.args[0]
-    assert "CREATE TABLE IF NOT EXISTS users" in create_users.args[0]
-    assert "CREATE TABLE IF NOT EXISTS user_sessions" in sessions.args[0]
-    assert "CREATE TABLE IF NOT EXISTS login_attempts" in attempts.args[0]
-    assert "CREATE INDEX IF NOT EXISTS report_drafts_owner_id" in owner_index.args[0]
+    statements = "\n".join(call.args[0] for call in setup)
+    for table in ("users", "user_sessions", "login_attempts", "audit_events"):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in statements
+    assert "CREATE INDEX IF NOT EXISTS report_drafts_owner_id" in statements
+    assert "CREATE INDEX IF NOT EXISTS audit_events_target_id" in statements
     db.close.assert_called_once()
