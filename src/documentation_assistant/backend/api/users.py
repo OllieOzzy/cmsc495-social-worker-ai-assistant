@@ -19,12 +19,14 @@ from documentation_assistant.backend.db.users import (
     rename_user,
     reset_user_password,
     set_user_active,
+    set_user_role,
 )
 from documentation_assistant.backend.schemas.auth import (
     CreateUserRequest,
     ResetPasswordRequest,
     UserAccount,
     UserProfileRequest,
+    UserRoleRequest,
     UserStatusRequest,
 )
 
@@ -122,6 +124,31 @@ def reset_account_password(
     )
     if account is None:
         raise HTTPException(404, "Account not found.")
+    return account
+
+
+@router.patch("/{user_id}/role", response_model=UserAccount)
+def change_account_role(
+    user_id: UUID,
+    payload: UserRoleRequest,
+    request: Request,
+    response: Response,
+    admin: AdminUser,
+) -> UserAccount:
+    """Change a role and sign out its sessions, protecting the last active admin."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        account = set_user_role(
+            request.app.state.database_path, user_id, role=payload.role
+        )
+    except AccountStatusConflict as exc:
+        raise HTTPException(
+            409, str(exc), headers={"Cache-Control": "no-store"}
+        ) from exc
+    if account is None:
+        raise HTTPException(
+            404, "Account not found.", headers={"Cache-Control": "no-store"}
+        )
     return account
 
 
