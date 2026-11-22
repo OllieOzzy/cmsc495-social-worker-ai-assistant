@@ -13,6 +13,11 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from documentation_assistant.backend.db.connection import connect
+from documentation_assistant.backend.db.sessions import (
+    SessionWriteGuard,
+    require_write_session,
+)
+from documentation_assistant.backend.schemas.auth import UserAccount
 from documentation_assistant.backend.schemas.reports import (
     DraftSections,
     EditReportRequest,
@@ -37,27 +42,40 @@ def save_draft(
     notes: str,
     sections: DraftSections,
     metadata: ReportMetadata | None = None,
+    *,
+    owner_id: UUID | None = None,
+    write_session: SessionWriteGuard | None = None,
 ) -> StoredReportDraft:
-    """Insert a draft with a new ID and return it after the write commits."""
+    """Insert a draft owned by the supplied account and return it after commit.
+
+    An omitted owner preserves unassigned legacy/internal reports. Authenticated
+    API creation supplies the signed-in account ID. AI routes also supply a
+    session guard, checked under the write lock before any report is inserted.
+    """
     details = metadata.model_dump(mode="json") if metadata is not None else {}
     metadata_values = [details.get(field) for field in _METADATA_FIELDS]
     draft = StoredReportDraft(
         report_id=uuid4(),
+        owner_id=owner_id,
         notes=notes,
         sections=sections,
         metadata=_read_metadata(metadata_values),
     )
     with connect(path) as connection:
+        if write_session is not None:
+            require_write_session(connection, write_session, owner_id)
         # Only schema column names and generated placeholders are interpolated.
         connection.execute(
             f"""
             INSERT INTO report_drafts
-                (report_id, notes, data, assessment, plan, created_at, {_METADATA_COLUMNS})
-            VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                (report_id, owner_id, notes, data, assessment, plan, created_at,
+                 {_METADATA_COLUMNS})
+            VALUES (?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     {_METADATA_PLACEHOLDERS})
             """,  # nosec B608
             (
                 str(draft.report_id),
+                str(owner_id) if owner_id is not None else None,
                 notes,
                 sections.data,
                 sections.assessment,
@@ -69,16 +87,25 @@ def save_draft(
 
 
 def list_drafts(
-    path: Path, filters: ReportFilters | None = None
+    path: Path,
+    filters: ReportFilters | None = None,
+    *,
+    viewer: UserAccount | None = None,
 ) -> list[ReportSummary]:
     """List a bounded page of matching summaries in reverse insertion order.
 
     SQLite applies filters before limit and offset, so only summaries on the
     requested page are loaded and validated. An exhausted page returns [].
+    With a viewer, regular accounts see only their own rows; administrators see
+    all rows, including unassigned reports. None is reserved for trusted internal
+    callers during rollout, not a substitute for authenticating an API request.
     """
     values = (filters or ReportFilters()).model_dump(mode="json")
     clauses = []
     parameters = []
+    if viewer is not None and viewer.role != "admin":
+        clauses.append("owner_id = ?")
+        parameters.append(str(viewer.user_id))
     for condition, value in (
         ("instr(casefold(student_name), ?) > 0", _casefold(values["student_name"])),
         ("student_id = ?", values["student_id"]),
@@ -104,7 +131,7 @@ def list_drafts(
         connection.create_function("casefold", 1, _casefold)
         rows = connection.execute(
             f"""
-            SELECT report_id, created_at, status, approved_by, {_METADATA_COLUMNS}
+            SELECT report_id, owner_id, created_at, status, approved_by, {_METADATA_COLUMNS}
             FROM report_drafts {where} ORDER BY rowid DESC LIMIT ? OFFSET ?
             """,  # nosec B608
             [*parameters, values["limit"], values["offset"]],
@@ -113,36 +140,65 @@ def list_drafts(
         ReportSummary.model_validate(
             {
                 "report_id": report_id,
+                "owner_id": owner_id,
                 "created_at": created_at,
                 "status": status,
                 "approved_by": approved_by,
                 "metadata": _read_metadata(details),
             }
         )
-        for report_id, created_at, status, approved_by, *details in rows
+        for report_id, owner_id, created_at, status, approved_by, *details in rows
     ]
 
 
-def get_draft(path: Path, report_id: UUID) -> StoredReportDraft | None:
-    """Return the full saved report by ID, or None if it is missing."""
+def get_draft(
+    path: Path, report_id: UUID, *, viewer: UserAccount | None = None
+) -> StoredReportDraft | None:
+    """Return a visible report, or None for missing and inaccessible IDs alike.
+
+    Pass an authenticated viewer for user-facing reads. Omitting it is reserved
+    for trusted internal operations during the authentication rollout.
+    """
     with connect(path) as connection:
-        return _get_report(connection, report_id)
+        return _get_report(connection, report_id, viewer=viewer)
 
 
-def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
+def assign_report_owner(path: Path, report_id: UUID, owner_id: UUID) -> bool:
+    """Explicitly assign an unowned report without changing content or revision.
+
+    This trusted maintenance operation never transfers an already owned report.
+    The account must exist; SQLite enforces the foreign key. No automatic
+    assignment occurs during startup or login.
+    """
+    with connect(path) as connection:
+        updated = connection.execute(
+            "UPDATE report_drafts SET owner_id = ? "
+            "WHERE report_id = ? AND owner_id IS NULL",
+            (str(owner_id), str(report_id)),
+        )
+    return updated.rowcount == 1
+
+
+def delete_draft(
+    path: Path, report_id: UUID, revision: int, *, owner_id: UUID | None = None
+) -> bool:
     """Delete a draft at the supplied revision and return False if it is missing."""
+    owner = str(owner_id) if owner_id is not None else None
     with connect(path) as connection:
         # Check the status and revision in the same statement that deletes the row.
         deleted = connection.execute(
             "DELETE FROM report_drafts "
-            "WHERE report_id = ? AND revision = ? AND status = 'draft'",
-            (str(report_id), revision),
+            "WHERE report_id = ? AND revision = ? AND status = 'draft' "
+            "AND (? IS NULL OR owner_id = ?)",
+            (str(report_id), revision, owner, owner),
         )
         if deleted.rowcount == 1:
             return True
 
         saved = connection.execute(
-            "SELECT status FROM report_drafts WHERE report_id = ?", (str(report_id),)
+            "SELECT status FROM report_drafts WHERE report_id = ? "
+            "AND (? IS NULL OR owner_id = ?)",
+            (str(report_id), owner, owner),
         ).fetchone()
         if saved is None:
             return False
@@ -152,9 +208,15 @@ def delete_draft(path: Path, report_id: UUID, revision: int) -> bool:
 
 
 def edit_draft(
-    path: Path, report_id: UUID, edit: EditReportRequest, *, ai_assisted: bool = False
+    path: Path,
+    report_id: UUID,
+    edit: EditReportRequest,
+    *,
+    ai_assisted: bool = False,
+    owner_id: UUID | None = None,
+    write_session: SessionWriteGuard | None = None,
 ) -> StoredReportDraft | None:
-    """Apply changes to a draft and return its incremented revision."""
+    """Apply changes and increment the revision, optionally guarding an AI session."""
     changes = edit.sections.model_dump() if edit.sections is not None else {}
     if edit.notes is not None:
         changes["notes"] = edit.notes
@@ -172,11 +234,18 @@ def edit_draft(
         ", ".join(f"{column} = ?" for column in changes),
         tuple(changes.values()),
         check_time_range="start_time" in changes or "end_time" in changes,
+        owner_id=owner_id,
+        write_session=write_session,
     )
 
 
 def approve_draft(
-    path: Path, report_id: UUID, revision: int, approved_by: str
+    path: Path,
+    report_id: UUID,
+    revision: int,
+    approved_by: str,
+    *,
+    approved_by_id: UUID | None = None,
 ) -> StoredReportDraft | None:
     """Approve the reviewed revision if all three DAP fields contain text."""
     return _update_review(
@@ -184,8 +253,8 @@ def approve_draft(
         report_id,
         revision,
         "status = 'approved', approved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
-        "approved_by = ?",
-        (approved_by,),
+        "approved_by = ?, approved_by_id = ?",
+        (approved_by, str(approved_by_id) if approved_by_id is not None else None),
         require_complete=True,
     )
 
@@ -200,7 +269,7 @@ def reopen_approved_report(
             """
             UPDATE report_drafts
             SET status = 'draft', revision = revision + 1,
-                approved_at = NULL, approved_by = NULL
+                approved_at = NULL, approved_by = NULL, approved_by_id = NULL
             WHERE report_id = ? AND revision = ? AND status = 'approved'
             """,
             (str(report_id), revision),
@@ -222,22 +291,30 @@ def _update_review(
     *,
     require_complete: bool = False,
     check_time_range: bool = False,
+    owner_id: UUID | None = None,
+    write_session: SessionWriteGuard | None = None,
 ) -> StoredReportDraft | None:
     """Update the matching draft revision and read it in the same transaction."""
     complete = (
         "AND data <> '' AND assessment <> '' AND plan <> ''" if require_complete else ""
     )
+    owner = str(owner_id) if owner_id is not None else None
     with connect(path) as connection:
+        if write_session is not None:
+            require_write_session(connection, write_session, owner_id)
         # Check status and revision in the UPDATE so stale requests cannot write.
         # The callers build assignments from schema fields or fixed approval SQL.
         updated = connection.execute(
             f"""
             UPDATE report_drafts SET {assignments}, revision = revision + 1
             WHERE report_id = ? AND revision = ? AND status = 'draft' {complete}
+                AND (? IS NULL OR owner_id = ?)
             """,  # nosec B608
-            (*values, str(report_id), revision),
+            (*values, str(report_id), revision, owner, owner),
         )
         report = _get_report(connection, report_id)
+        if report is not None and owner_id is not None and report.owner_id != owner_id:
+            return None
         if updated.rowcount == 0 and report is not None:
             if report.status == "approved":
                 raise ReviewConflict("Approved reports are read-only.")
@@ -254,22 +331,31 @@ def _update_review(
 
 
 def _get_report(
-    connection: sqlite3.Connection, report_id: UUID
+    connection: sqlite3.Connection,
+    report_id: UUID,
+    *,
+    viewer: UserAccount | None = None,
 ) -> StoredReportDraft | None:
     """Read a report using the caller's connection and transaction."""
     # The column list comes from the schema. The report ID is bound separately.
+    owner_clause = ""
+    parameters = [str(report_id)]
+    if viewer is not None and viewer.role != "admin":
+        owner_clause = "AND owner_id = ?"
+        parameters.append(str(viewer.user_id))
     row = connection.execute(
         f"""
-        SELECT notes, data, assessment, plan, status, revision, approved_at, approved_by,
+        SELECT owner_id, notes, data, assessment, plan, status, revision, approved_at, approved_by,
                {_METADATA_COLUMNS}
-        FROM report_drafts WHERE report_id = ?
+        FROM report_drafts WHERE report_id = ? {owner_clause}
         """,  # nosec B608
-        (str(report_id),),
+        tuple(parameters),
     ).fetchone()
     if row is None:
         return None
     # Rebuild the nested sections from the flat SQLite row.
     (
+        owner_id,
         notes,
         data,
         assessment,
@@ -283,6 +369,7 @@ def _get_report(
     return StoredReportDraft.model_validate(
         {
             "report_id": report_id,
+            "owner_id": owner_id,
             "notes": notes,
             "sections": DraftSections(data=data, assessment=assessment, plan=plan),
             "metadata": _read_metadata(details),

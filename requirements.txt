@@ -2,6 +2,7 @@
 fastapi==0.162.2
 httpx==0.28.1
 pydantic==2.14.3
+pwdlib[argon2]==0.4.2
 pypdf==7.0.1
 reportlab==5.1.0
 uvicorn==0.54.0

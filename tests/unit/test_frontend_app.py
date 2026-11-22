@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from documentation_assistant.frontend import reports, sidebar
+from documentation_assistant.frontend import account, auth, reports, sidebar, users
 
 APP_PATH = Path(reports.__file__).with_name("app.py")
 
@@ -36,6 +36,22 @@ def app(monkeypatch):
         monkeypatch.setattr(reports, name, handlers[name])
     handlers["show_sidebar"] = Mock()
     monkeypatch.setattr(sidebar, "show_sidebar", handlers["show_sidebar"])
+    handlers["require_login"] = Mock(return_value=True)
+    monkeypatch.setattr(auth, "require_login", handlers["require_login"])
+    handlers["show_password_navigation"] = Mock(return_value=False)
+    handlers["show_password_change"] = Mock()
+    monkeypatch.setattr(
+        account, "show_password_navigation", handlers["show_password_navigation"]
+    )
+    monkeypatch.setattr(
+        account, "show_password_change", handlers["show_password_change"]
+    )
+    handlers["show_admin_navigation"] = Mock(return_value=False)
+    handlers["show_user_management"] = Mock()
+    monkeypatch.setattr(
+        users, "show_admin_navigation", handlers["show_admin_navigation"]
+    )
+    monkeypatch.setattr(users, "show_user_management", handlers["show_user_management"])
     return SimpleNamespace(ui=streamlit, **handlers)
 
 
@@ -47,6 +63,38 @@ def test_default_view_routes_to_new_report(app):
     app.new_report.assert_called_once_with()
     app.review_report.assert_not_called()
     app.open_report.assert_not_called()
+
+
+def test_password_screen_routes_without_rendering_reports(app):
+    """Account settings must not mix password fields with report content."""
+    app.show_password_navigation.return_value = True
+    with pytest.raises(RenderStopped):
+        runpy.run_path(str(APP_PATH))
+    app.show_password_change.assert_called_once_with()
+    app.show_user_management.assert_not_called()
+    app.show_sidebar.assert_not_called()
+    app.review_report.assert_not_called()
+
+
+def test_user_management_routes_without_rendering_report_content(app):
+    """The management screen and report screens do not share the same render."""
+    app.show_admin_navigation.return_value = True
+    with pytest.raises(RenderStopped):
+        runpy.run_path(str(APP_PATH))
+    app.show_user_management.assert_called_once_with()
+    app.show_sidebar.assert_not_called()
+    app.review_report.assert_not_called()
+
+
+def test_unauthenticated_view_does_not_render_reports_or_history(app):
+    """A cached report must never render while the login gate is closed."""
+    app.require_login.return_value = False
+    app.ui.session_state["report"] = {"notes": "Private cached notes."}
+    with pytest.raises(RenderStopped):
+        runpy.run_path(str(APP_PATH))
+    app.show_sidebar.assert_not_called()
+    app.review_report.assert_not_called()
+    app.new_report.assert_not_called()
 
 
 def test_saved_report_routes_to_review_before_pending_recovery(app):

@@ -1,0 +1,140 @@
+"""Authenticate accounts and issue revocable, expiring opaque bearer tokens."""
+
+import hashlib
+import secrets
+from datetime import UTC, datetime
+from pathlib import Path
+from time import time
+from uuid import UUID
+
+from documentation_assistant.backend.auth.passwords import (
+    hash_password,
+    validate_new_password,
+    verify_password,
+)
+from documentation_assistant.backend.db.sessions import (
+    delete_session,
+    get_session_user,
+    reserve_login_attempt,
+    save_session,
+)
+from documentation_assistant.backend.db.users import (
+    get_user_by_id,
+    get_user_by_username,
+    reset_user_password,
+)
+from documentation_assistant.backend.schemas.auth import LoginResponse, UserAccount
+
+SESSION_LIFETIME_SECONDS = 8 * 60 * 60
+# Unknown usernames still perform a real password verification. Never use this
+# random, process-local value as an account credential.
+_DUMMY_HASH = hash_password(secrets.token_urlsafe(32))
+
+
+class InvalidCredentials(ValueError):
+    """Credentials or a session cannot authenticate an active account."""
+
+
+class IncorrectCurrentPassword(ValueError):
+    """A signed-in user supplied the wrong current password."""
+
+
+class LoginThrottled(ValueError):
+    """The username has exhausted its current login-attempt window."""
+
+    def __init__(self, retry_after: int):
+        super().__init__("Too many login attempts. Try again later.")
+        self.retry_after = retry_after
+
+
+def token_digest(token: str) -> str:
+    """Hash a high-entropy token before using it in storage or lookup."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def login(path: Path, username: str, password: str) -> LoginResponse:
+    """Verify credentials, applying the same throttle to known and unknown users."""
+    username = username.strip().lower()
+    now = int(time())
+    if retry_after := reserve_login_attempt(path, username, now):
+        raise LoginThrottled(retry_after)
+    account = get_user_by_username(path, username)
+    valid = verify_password(password, account.password_hash if account else _DUMMY_HASH)
+    if not valid or account is None or not account.is_active:
+        raise InvalidCredentials("Invalid username or password.")
+    token = secrets.token_urlsafe(32)
+    # Start the lifetime after password verification has completed.
+    now = int(time())
+    expires_at = now + SESSION_LIFETIME_SECONDS
+    if not save_session(
+        path,
+        token_digest(token),
+        account.user_id,
+        now,
+        expires_at,
+        verified_password_hash=account.password_hash,
+        verified_username=account.username,
+        verified_role=account.role,
+    ):
+        raise InvalidCredentials("Invalid username or password.")
+    return LoginResponse(
+        access_token=token,
+        expires_at=datetime.fromtimestamp(expires_at, UTC),
+        user=UserAccount.model_validate(account.model_dump()),
+    )
+
+
+def authenticate_session(path: Path, token: str) -> UserAccount:
+    """Resolve a live token and current public account using a single joined read."""
+    if len(token) != 43:
+        raise InvalidCredentials("Invalid or expired session.")
+    account = get_session_user(path, token_digest(token), int(time()))
+    if account is None:
+        raise InvalidCredentials("Invalid or expired session.")
+    return account
+
+
+def logout(path: Path, token: str) -> None:
+    """Revoke the supplied session so its token cannot be reused."""
+    delete_session(path, token_digest(token))
+
+
+def change_password(
+    path: Path,
+    user_id: UUID,
+    current_password: str,
+    new_password: str,
+    *,
+    authenticated_username: str | None = None,
+) -> None:
+    """Verify the current credential, then atomically replace it and revoke sessions.
+
+    Use the login attempt window to bound guesses of the current password.
+    Verification and hashing stay outside the write lock; storage rechecks the
+    verified hash under the lock before committing the replacement.
+    """
+    validate_new_password(new_password)
+    account = get_user_by_id(path, user_id)
+    if account is None or not account.is_active:
+        raise InvalidCredentials("Invalid or expired session.")
+    if (
+        authenticated_username is not None
+        and account.username != authenticated_username
+    ):
+        raise InvalidCredentials("Invalid or expired session.")
+    if retry_after := reserve_login_attempt(path, account.username, int(time())):
+        raise LoginThrottled(retry_after)
+    if not verify_password(current_password, account.password_hash):
+        raise IncorrectCurrentPassword("Current password is incorrect.")
+    if (
+        reset_user_password(
+            path,
+            user_id,
+            password_hash=hash_password(new_password),
+            verified_password_hash=account.password_hash,
+            verified_username=account.username,
+            actor_id=user_id,
+        )
+        is None
+    ):
+        raise InvalidCredentials("Invalid or expired session.")

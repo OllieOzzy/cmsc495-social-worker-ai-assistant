@@ -6,6 +6,8 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 
 _ADDED_COLUMNS = {
+    "owner_id": "TEXT REFERENCES users(user_id)",
+    "approved_by_id": "TEXT REFERENCES users(user_id)",
     "created_at": "TEXT",
     "student_name": "TEXT",
     "student_id": "TEXT",
@@ -41,16 +43,19 @@ def connect(path: Path) -> Iterator[sqlite3.Connection]:
     """
     # Commit or roll back the transaction before closing the connection.
     with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("PRAGMA foreign_keys = ON")
         yield connection
 
 
 def initialize_database(path: Path) -> None:
-    """Create or upgrade the reports table before the backend serves requests."""
+    """Create report, account, and audit tables and upgrade missing report columns."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect(path) as connection:
         connection.execute("""
             CREATE TABLE IF NOT EXISTS report_drafts (
                 report_id TEXT PRIMARY KEY NOT NULL,
+                owner_id TEXT REFERENCES users(user_id),
+                approved_by_id TEXT REFERENCES users(user_id),
                 notes TEXT NOT NULL,
                 data TEXT NOT NULL,
                 assessment TEXT NOT NULL,
@@ -81,6 +86,67 @@ def initialize_database(path: Path) -> None:
             )
         """)
         _ensure_added_columns(connection)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY NOT NULL,
+                username TEXT NOT NULL COLLATE NOCASE UNIQUE
+                    CHECK(length(username) BETWEEN 3 AND 64),
+                display_name TEXT NOT NULL
+                    CHECK(length(trim(display_name)) BETWEEN 1 AND 200),
+                password_hash TEXT NOT NULL CHECK(length(trim(password_hash)) > 0),
+                role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin')),
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                created_at TEXT NOT NULL
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                token_hash TEXT PRIMARY KEY NOT NULL,
+                user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL CHECK(expires_at > created_at)
+            )
+        """)
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                username TEXT PRIMARY KEY NOT NULL,
+                failures INTEGER NOT NULL CHECK(failures >= 1),
+                window_started_at INTEGER NOT NULL
+            )
+        """)
+        # Token and username primary keys cover direct lookups. These indexes
+        # cover account-wide revocation and expiry cleanup without table scans.
+        # IF NOT EXISTS also upgrades existing databases at the next startup.
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS user_sessions_user_id ON user_sessions(user_id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS user_sessions_expires_at ON user_sessions(expires_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS login_attempts_window_started_at ON login_attempts(window_started_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS report_drafts_owner_id ON report_drafts(owner_id)"
+        )
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS audit_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                occurred_at TEXT NOT NULL,
+                actor_id TEXT,
+                actor_username TEXT,
+                target_id TEXT NOT NULL,
+                target_username TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN (
+                    'account_created', 'account_renamed', 'account_activated',
+                    'account_deactivated', 'role_changed', 'password_reset', 'password_changed'
+                )),
+                changes TEXT NOT NULL
+            )
+        """)
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS audit_events_target_id ON audit_events(target_id, event_id DESC)"
+        )
 
 
 def _ensure_added_columns(connection: sqlite3.Connection) -> None:

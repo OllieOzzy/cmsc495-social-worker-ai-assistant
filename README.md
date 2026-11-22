@@ -9,9 +9,9 @@ AI-powered documentation assistant for school social workers, developed as a UMG
 
 ## Quick Start
 
-[Download and Watch the 1.1.0 Demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.1.0/demo110.mp4)
+[Watch the earlier 1.1.0 demo](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases/download/1.1.0/demo110.mp4)
 
-Install Python 3.12, then download `dap_app-1.1.0-py3-none-any.whl` from the
+Install Python 3.12, then download `dap_app-2.0.0-py3-none-any.whl` from the
 **Assets** section of the [GitHub release](https://github.com/OllieOzzy/cmsc495-social-worker-ai-assistant/releases).
 Save the wheel in a folder you want to use for the app and open a terminal in that folder.
 
@@ -26,7 +26,8 @@ Once `py -3.12 --version` shows Python 3.12, run the commands below. If
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install .\dap_app-1.1.0-py3-none-any.whl
+.\.venv\Scripts\python.exe -m pip install .\dap_app-2.0.0-py3-none-any.whl
+.\.venv\Scripts\dap-assistant.exe init-demo-users
 .\.venv\Scripts\dap-assistant.exe
 ```
 
@@ -34,30 +35,128 @@ py -3.12 -m venv .venv
 
 ```sh
 python3.12 -m venv .venv
-./.venv/bin/python -m pip install ./dap_app-1.1.0-py3-none-any.whl
+./.venv/bin/python -m pip install ./dap_app-2.0.0-py3-none-any.whl
+./.venv/bin/dap-assistant init-demo-users
 ./.venv/bin/dap-assistant
 ```
 
-Open `http://127.0.0.1:8501` in your browser. Choose **Written by hand** to get
-started. For **AI-assisted draft**, start Ollama and install the default model
+The explicit demo setup above creates `admin` and `user`, both with password
+`password1234`, for synthetic-data demonstrations only. For a non-demo setup,
+replace `init-demo-users` with `create-user --role admin` and follow the prompts.
+See [Accounts and Permissions](#accounts-and-permissions) for roles and user management.
+
+Open `http://127.0.0.1:8501` in your browser, sign in, and choose **Written by hand**
+to get started. For **AI-assisted draft**, start Ollama and install the default model
 with `ollama pull qwen3:8b`. Follow the [local Ollama setup guide](docs/LOCAL-OLLAMA-SETUP.md)
 for platform-specific instructions.
 
 The app saves reports in `data/dap.db` under the folder where you launched it.
 Press **Ctrl+C** in the launch terminal to stop the app.
 
-### Upgrade from 1.0.0
+### Upgrade from 1.x to 2.0.0
 
 Stop the app before upgrading. Keep a backup of `data/dap.db` while the app
 is stopped, or back up the file selected by `DAP_DB_PATH` if you configured
 another location. Install the new wheel using the same environment's Python
 and the installation command above, then launch the app from the same working
 folder so it finds the existing database. Startup adds any missing schema
-columns without deleting saved reports.
+columns, account/audit tables, and indexes without deleting saved reports.
+
+**Breaking change:** all report endpoints now require authentication. Create
+the initial accounts using the same working folder and `DAP_DB_PATH`, then
+sign in. Existing API clients must call `POST /auth/login` and send
+`Authorization: Bearer <access_token>` on report requests. Approval and
+reopening require an administrator, and draft editing/deletion require ownership.
+
+Reports created in 1.x remain unassigned and visible only to admins. Setup and
+login do not automatically claim them. A trusted maintenance operation can use
+`assign_report_owner` to assign an unowned report; there is no ownership-assignment
+screen or public endpoint. See [Report Ownership Storage](src/documentation_assistant/backend/README.md#report-ownership-storage).
 
 The wheel includes the frontend, backend, PDF template, and generation prompt.
 Ollama and its model are installed separately and are only needed for AI-assisted
 drafting. See the [Ollama guide](docs/LOCAL-OLLAMA-SETUP.md) to choose another model.
+
+## Accounts and Permissions
+
+Version **2.0.0** adds authentication, report ownership, role-based review,
+user management, and account audit history. For a source installation, use a
+Python 3.12 environment and run these commands from the repository root:
+
+```shell
+python -m pip install -e .
+dap-assistant init-demo-users
+dap-assistant
+```
+
+Open `http://127.0.0.1:8501` and sign in with a synthetic-data demo account:
+
+| Username | Password | Access |
+| --- | --- | --- |
+| `user` | `password1234` | Own reports only; can edit and delete own unapproved drafts. |
+| `admin` | `password1234` | All reports; can approve or reopen any report, and edit only own drafts. |
+
+Demo accounts are created only by the explicit setup command, which leaves
+existing credentials and roles unchanged. Use these public passwords only
+with synthetic records. Use `dap-assistant create-user` to add a regular
+account, or append `--role admin` for an administrator. New non-demo accounts
+require passwords of 15–1,024 characters.
+
+Administrators can also open **Manage users** in the sidebar to list accounts,
+create regular or administrator accounts, and activate or deactivate users.
+Deactivation revokes existing sessions and preserves the user's reports.
+Reactivation requires a fresh login. Self-deactivation is blocked, and the
+database protects the last active administrator from concurrent deactivation.
+Keep the CLI for creating the first administrator and initial demo setup.
+
+Use **Search accounts** to find users by part of their username or display
+name. Search covers all accounts, including inactive ones, and keeps results
+paginated. **Clear search** restores the full list.
+
+For forgotten passwords, an administrator can select the account in **Manage
+users**, expand **Reset password**, enter and confirm a replacement, and confirm
+that all sessions will be signed out. Resetting your own admin password returns
+you to login. Existing account details and reports are preserved.
+
+Any signed-in user can select **Change password** in the sidebar to update
+their own password after verifying the current one. The replacement must
+contain 15–1,024 characters. Successful changes revoke all sessions and return
+to login; they do not change report ownership or account permissions.
+
+Administrators can also use **Rename account** in Manage users to edit a
+username or display name. Username changes require confirmation and revoke
+all sessions; display-name changes keep sessions active. Account IDs, owned
+reports, and previously recorded approver names stay unchanged.
+
+In **Change role**, administrators can promote users or demote administrators.
+Confirm the permission change before saving. All affected sessions are signed
+out, and the user signs in again with the new role. The last active admin
+cannot be demoted, even during concurrent account changes. Inactive accounts
+remain inactive; reports and approval history are preserved.
+
+Account setup and the launcher must use the same working directory and
+`DAP_DB_PATH`. Accounts, session hashes, and reports share the SQLite file.
+
+Administrators can turn on **Show audit history** in Manage users to review
+account creation, name and role changes, activation changes, and password
+resets or changes. Entries show the actor, target account, UTC time, and public
+before/after values. Passwords, hashes, tokens, and report content are excluded.
+History uses a separate `audit_events` table in the same database and is saved
+with each account change. CLI actions are labeled **Local operation**. Existing
+databases gain the table at startup; earlier actions are not reconstructed.
+
+Existing reports remain unassigned and are visible only to administrators
+through authenticated routes until explicitly assigned. Approved reports
+cannot be edited or deleted until an administrator reopens them.
+
+Sign out using the sidebar. Sessions expire after eight hours; logout and
+invalid sessions clear private browser-session state when detected. FastAPI enforces report
+permissions independently of the interface. API clients must sign in through
+`POST /auth/login` and send the returned bearer token on report requests.
+The health endpoint remains public for startup checks.
+
+See the [backend account guide](src/documentation_assistant/backend/README.md#local-account-setup)
+and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and-permissions).
 
 ## 🗂️ Repository Structure
 
@@ -92,12 +191,24 @@ drafting. See the [Ollama guide](docs/LOCAL-OLLAMA-SETUP.md) to choose another m
 │       │   ├── 🐍 main.py
 │       │   ├── 📁 api/
 │       │   │   ├── 🐍 __init__.py
+│       │   │   ├── 🐍 auth.py
 │       │   │   ├── 🐍 health.py
-│       │   │   └── 🐍 reports.py
+│       │   │   ├── 🐍 reports.py
+│       │   │   ├── 🐍 users.py
+│       │   │   └── 🐍 validation.py
+│       │   ├── 📁 auth/
+│       │   │   ├── 🐍 __init__.py
+│       │   │   ├── 🐍 cli.py
+│       │   │   ├── 🐍 dependencies.py
+│       │   │   ├── 🐍 passwords.py
+│       │   │   └── 🐍 service.py
 │       │   ├── 📁 db/
 │       │   │   ├── 🐍 __init__.py
+│       │   │   ├── 🐍 audit.py
 │       │   │   ├── 🐍 connection.py
-│       │   │   └── 🐍 drafts.py
+│       │   │   ├── 🐍 drafts.py
+│       │   │   ├── 🐍 sessions.py
+│       │   │   └── 🐍 users.py
 │       │   ├── 📁 export/
 │       │   │   ├── 🐍 __init__.py
 │       │   │   ├── 🐍 pdf.py
@@ -111,40 +222,82 @@ drafting. See the [Ollama guide](docs/LOCAL-OLLAMA-SETUP.md) to choose another m
 │       │   │       └── 📝 dap_generation.txt
 │       │   └── 📁 schemas/
 │       │       ├── 🐍 __init__.py
+│       │       ├── 🐍 audit.py
+│       │       ├── 🐍 auth.py
 │       │       └── 🐍 reports.py
 │       └── 📁 frontend/
 │           ├── 📄 README.md
 │           ├── 🐍 __init__.py
+│           ├── 🐍 account.py
 │           ├── 🐍 api_client.py
 │           ├── 🐍 app.py
+│           ├── 🐍 audit.py
+│           ├── 🐍 auth.py
+│           ├── 🐍 auth_state.py
 │           ├── 🐍 forms.py
 │           ├── 🐍 reports.py
-│           └── 🐍 sidebar.py
+│           ├── 🐍 sidebar.py
+│           └── 🐍 users.py
 └── 📁 tests/
+    ├── 🐍 __init__.py
+    ├── 🐍 auth_helpers.py
     ├── 📁 integration/
+    │   ├── 🐍 conftest.py
+    │   ├── 🧪 test_account_setup.py
+    │   ├── 🧪 test_account_audit_api.py
+    │   ├── 🧪 test_auth_api.py
+    │   ├── 🧪 test_auth_indexes.py
+    │   ├── 🧪 test_ai_session_revocation.py
+    │   ├── 🧪 test_frontend_auth.py
+    │   ├── 🧪 test_frontend_session_heartbeat.py
+    │   ├── 🧪 test_frontend_audit.py
+    │   ├── 🧪 test_frontend_password_change.py
+    │   ├── 🧪 test_frontend_user_management.py
+    │   ├── 🧪 test_frontend_user_rename.py
+    │   ├── 🧪 test_frontend_user_roles.py
     │   ├── 🧪 test_frontend_recovery.py
     │   ├── 🧪 test_frontend_reports.py
     │   ├── 🧪 test_health_api.py
     │   ├── 🧪 test_report_pdf.py
-    │   └── 🧪 test_reports_api.py
+    │   ├── 🧪 test_password_reset_api.py
+    │   ├── 🧪 test_password_change_api.py
+    │   ├── 🧪 test_report_ownership.py
+    │   ├── 🧪 test_report_permissions.py
+    │   ├── 🧪 test_reports_api.py
+    │   ├── 🧪 test_user_management_api.py
+    │   ├── 🧪 test_user_profile_api.py
+    │   ├── 🧪 test_user_role_api.py
+    │   ├── 🧪 test_user_search_api.py
+    │   └── 🧪 test_users_db.py
     ├── 📁 llm/
     │   ├── 🧪 test_dap_quality.py
     │   └── 🧪 test_live_ollama.py
     ├── 📁 packaging/
     │   └── 🐍 check_installed_wheel.py
     └── 📁 unit/
+        ├── 🧪 test_audit.py
+        ├── 🧪 test_auth_service.py
         ├── 🧪 test_db_connection.py
         ├── 🧪 test_drafts.py
         ├── 🧪 test_frontend_api_client.py
+        ├── 🧪 test_frontend_account.py
         ├── 🧪 test_frontend_app.py
+        ├── 🧪 test_frontend_audit.py
+        ├── 🧪 test_frontend_auth.py
         ├── 🧪 test_frontend_forms.py
         ├── 🧪 test_frontend_reports.py
         ├── 🧪 test_frontend_sidebar.py
+        ├── 🧪 test_frontend_users.py
         ├── 🧪 test_health_handler.py
+        ├── 🧪 test_launcher.py
         ├── 🧪 test_ollama.py
+        ├── 🧪 test_passwords.py
         ├── 🧪 test_pdf_renderer.py
         ├── 🧪 test_report_handlers.py
-        └── 🧪 test_report_schemas.py
+        ├── 🧪 test_report_schemas.py
+        ├── 🧪 test_sessions.py
+        ├── 🧪 test_user_schemas.py
+        └── 🧪 test_users.py
 ```
 
 The backend creates or upgrades the local SQLite database during startup.
@@ -157,17 +310,17 @@ repository's `data/` folder.
 ```mermaid
 flowchart TD
     Worker["School social worker"]
-    UI["Streamlit frontend"]
-    API["FastAPI backend"]
+    UI["Streamlit frontend<br/>Sign-in, reports, and account screens"]
+    API["FastAPI backend<br/>Session and report permissions"]
     AI["Local Ollama"]
-    DB[("Local SQLite")]
+    DB[("Local SQLite<br/>Accounts, sessions, reports, and audit history")]
     PDF["PDF exporter"]
 
     Worker -->|"Enter notes or start a manual draft"| UI
     UI -->|"Show source notes and DAP for review"| Worker
     UI <-->|"Report requests, responses, and PDFs"| API
     API <-->|"Generate DAP from source notes"| AI
-    API <-->|"Store and retrieve notes and reports"| DB
+    API <-->|"Accounts, reports, and audit records"| DB
     API <-->|"Export a saved draft or approved report"| PDF
 
     classDef user fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:2px
@@ -198,22 +351,24 @@ flowchart TD
     Start --> Unit["Unit tests"]
     Start --> Integration["Integration tests"]
 
-    Unit --> Coverage["Backend coverage report · 90% minimum"]
+    Unit --> Coverage["Backend and frontend coverage<br/>90% minimum each"]
     Integration --> Coverage
-    Checks --> Eligible{"PR to main, push to main,<br/>or manual run on main?"}
+    Checks --> Eligible{"Branch push, PR to main,<br/>or manual run on main?"}
     Coverage --> Eligible
     Eligible -->|"Yes, after all checks pass"| Build["Build one wheel"]
     Eligible -->|"Other CI runs"| Skip["Skip wheel jobs"]
 
-    Build --> Windows["Validate on Windows"]
-    Build --> Linux["Validate on Ubuntu"]
-    Build --> Mac["Validate on macOS"]
+    Build --> ValidateEligible{"PR to main, push to main,<br/>or manual run on main?"}
+    ValidateEligible -->|"Yes"| Windows["Validate on Windows"]
+    ValidateEligible -->|"Yes"| Linux["Validate on Ubuntu"]
+    ValidateEligible -->|"Yes"| Mac["Validate on macOS"]
+    ValidateEligible -->|"Other branch pushes"| Candidate["Candidate wheel available"]
 
     Windows --> Validated["All three wheel validations pass"]
     Linux --> Validated
     Mac --> Validated
     Validated --> ReleaseEligible{"Push or manual run<br/>on main?"}
-    ReleaseEligible -->|"Yes"| Upload["Upload dap-app-1.1.0.zip"]
+    ReleaseEligible -->|"Yes"| Upload["Upload dap-app-2.0.0.zip"]
     ReleaseEligible -->|"Pull request"| Ready["PR wheel validation complete"]
 
     classDef trigger fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:2px
@@ -227,8 +382,8 @@ flowchart TD
     class Checks,Unit,Integration,Coverage checks
     class Build build
     class Windows,Linux,Mac,Validated validation
-    class Eligible,ReleaseEligible decision
-    class Upload artifact
+    class Eligible,ValidateEligible,ReleaseEligible decision
+    class Upload,Candidate artifact
 ```
 
 The [CI Pipeline](.github/workflows/ci.yml) runs on pushes, pull requests, and
@@ -241,20 +396,24 @@ manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 | Workflow Security | zizmor reports security findings. Scanner errors fail the job. |
 | Python Linting | Ruff checks for issues such as unused imports. |
 | Python Formatting | Ruff checks Python formatting. |
-| Python Security | Bandit scans the backend Python code. |
+| Python Security | Bandit scans backend and frontend Python code. |
 | Dependency Security | pip-audit checks the dependencies in `requirements.txt` for known vulnerabilities. |
 | Unit Tests | Pytest checks backend validation, Ollama response parsing, and frontend API handling, forms, routing, and actions. |
-| Integration Tests | Pytest checks FastAPI and SQLite workflows, Streamlit report actions, recovery, proxy handling, pagination, and PDF downloads. |
-| Coverage Report | Combines unit and integration coverage, publishes the report in the run summary, and fails below 90% backend coverage. |
-| Build Wheel | Builds one wheel after checks pass on PRs targeting `main`, pushes to `main`, and manual runs on `main`. |
-| Validate Wheel | Installs the wheel on Ubuntu, Windows, and macOS with Python 3.12 and checks that the installed app can save a draft and export a PDF. |
+| Integration Tests | Pytest checks authenticated FastAPI/SQLite workflows, account management and audit history, idle revocation, guarded AI writes, report actions, recovery, and PDF downloads. |
+| Coverage Report | Combines unit and integration coverage, publishes separate backend/frontend reports, and requires at least 90% for each. Both reports run even if one threshold fails. |
+| Build Wheel | Builds one candidate wheel after checks pass on any branch push, PRs targeting `main`, and manual runs on `main`. |
+| Validate Wheel | On PRs targeting `main`, pushes to `main`, and manual runs on `main`, installs the wheel on Ubuntu, Windows, and macOS and checks the installed app. |
 | Upload Validated Wheel | Adds the versioned ZIP after all three validations pass, only on pushes or manual runs on `main`. |
 
 Linting, formatting, security checks, unit tests, and integration tests run in
 parallel. Coverage waits for both test jobs. The wheel build waits for coverage
-and all other checks to pass. Wheel building and validation run on pull requests
+and all other checks to pass. All branch pushes build a wheel and save it as
+the `app-wheel-candidate` artifact, which can be downloaded from the workflow
+run's **Artifacts** section. Merging into a non-main branch also triggers its
+push build. Cross-platform validation runs on pull requests
 targeting `main`, pushes to `main` (including PR merges), and manual runs on
-`main`. Ordinary branch pushes and PRs targeting other branches skip those jobs.
+`main`. Other branch pushes skip validation; PRs targeting other branches,
+tag pushes, and manual runs on other branches skip the wheel jobs.
 The final versioned artifact upload runs only on pushes and manual runs on
 `main`; PR runs upload a candidate wheel only for cross-platform validation.
 The regular pipeline uses synthetic data and mocks
@@ -265,7 +424,7 @@ To prepare a release, run **CI Pipeline** manually on `main`. After the wheel
 checks pass, download `dap-app-<version>` from **Artifacts** and extract the
 `.whl` for the GitHub Release.
 
-Before publishing `1.1.0`, verify the final commit on `main` with both workflows.
+Before publishing `2.0.0`, verify the final commit on `main` with both workflows.
 Enable the optional DAP quality cases in **Live Ollama Test**. CI uses
 `qwen3:4b`, while the app defaults to `qwen3:8b`; also review representative
 drafts locally with the model you intend to demonstrate.
@@ -273,7 +432,8 @@ drafts locally with the model you intend to demonstrate.
 Install the validated wheel in a separate environment and walk through
 creation, saving, reopening, editing, approval, and PDF export. Check backend
 and Ollama outage recovery, and verify that unsaved browser form edits survive
-status-panel checks and automatic refreshes. Tag the verified commit `1.1.0`
+status-panel checks and automatic refreshes. Also verify both roles, account
+management, session revocation, and audit history. Tag the verified commit `2.0.0`
 and attach its validated wheel to the GitHub Release. The workflows upload
 artifacts; they do not create a release or publish to a package registry.
 
@@ -374,24 +534,23 @@ Official repositories and documentation for the tools used in this project:
 - [GitHub Actions documentation](https://docs.github.com/en/actions) — Configuring CI workflows and automated checks.
 - [Ruff documentation](https://docs.astral.sh/ruff/) — Checking Python code quality and formatting.
 
-## Release 1.1.0
+## Release 2.0.0
 
-See the [changelog](CHANGELOG.md) for the changes since `1.0.0` and upgrade notes.
+Version 2.0.0 introduces authenticated, account-based access. See the
+[changelog](CHANGELOG.md) for the changes since `1.1.0` and the upgrade notes above.
 
-- **Automated frontend and expanded backend tests.** Cover form validation,
-  report review, backend recovery, session times, and concurrent report changes.
-- **Service status caching.** Reuse status results for 60 seconds while keeping
-  startup checks, automatic refresh, and immediate manual retries.
-- **Database startup initialization.** Create or upgrade the schema once at
-  startup instead of checking it during every storage operation.
-- **Paginated report history.** Browse 25 reports per page with Previous and Next
-  controls. API consumers can use `limit` and `offset` query parameters.
-- **HTTP connection reuse.** Reuse the backend Ollama client and frontend
-  clients within each browser session, with cleanup when they are released.
-- **Actionable validation errors.** Show session-time and field-validation
-  explanations while preserving pending edits after a rejected save.
-- **Local proxy bypass.** Connect directly to loopback backends while retaining
-  environment proxy support for remote backends.
+- **Accounts and sessions.** Argon2id passwords, revocable eight-hour sessions,
+  login throttling, and explicit local account setup.
+- **Report permissions.** Users see their own reports; admins can review all
+  reports and approve or reopen them. Owners control draft editing and deletion.
+- **User management.** Admin account creation, search, activation, renaming,
+  role changes, and password reset, plus self-service password changes.
+- **Account audit history.** Transactional records of account actions, excluding
+  credentials and report content, with an admin-only history view.
+- **Authentication optimizations.** One-query session verification, indexes
+  for revocation and cleanup, and indexed account-filtered audit reads.
+- **Session safeguards.** Idle pages verify server access every 60 seconds;
+  AI saves revalidate the session inside the report write transaction.
 
 ## Future Improvements
 

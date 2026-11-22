@@ -7,10 +7,10 @@ They check content and review markings rather than a screenshot of the layout.
 from io import BytesIO
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
 from documentation_assistant.backend.main import create_app
+from tests.auth_helpers import AuthenticatedTestClient as TestClient
 
 
 def test_download_returns_the_current_saved_report(monkeypatch, tmp_path):

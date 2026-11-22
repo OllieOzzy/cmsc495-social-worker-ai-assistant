@@ -1,4 +1,4 @@
-"""Verify the launcher and handwritten report workflow from an installed wheel.
+"""Verify installed account setup, permissions, report workflows, and audit history.
 
 CI runs this script directly with Python's -I option after installing the wheel
 in a fresh environment. It is not a pytest test: it starts real server processes
@@ -44,10 +44,20 @@ def wait_for_servers(process: subprocess.Popen, client: httpx.Client) -> None:
 
 
 def check_handwritten_report(client: httpx.Client) -> None:
-    """Save a draft through the installed Streamlit form and read its PDF."""
+    """Verify installed login, owner edits, admin approval, PDF export, and logout."""
+    assert client.get(f"{_BACKEND_URL}/reports").status_code == 401
     app_path = files("documentation_assistant.frontend").joinpath("app.py")
     app = AppTest.from_file(str(app_path), default_timeout=20).run()
     assert not app.exception, app.exception
+
+    app.text_input(key="login_username").set_value("user")
+    app.text_input(key="login_password").set_value("password1234")
+    next(button for button in app.button if button.label == "Sign in").click()
+    app.run()
+    assert not app.exception, app.exception
+
+    assert app.session_state["auth_user"]["role"] == "user"
+    assert all(button.label != "Approve saved draft" for button in app.button)
 
     notes = next(field for field in app.text_area if "Session Notes" in field.label)
     notes.set_value(_NOTES)
@@ -58,19 +68,208 @@ def check_handwritten_report(client: httpx.Client) -> None:
     report_id = app.session_state["report"]["report_id"]
     data = next(field for field in app.text_area if field.label.startswith("D: Data"))
     data.set_value(_DATA)
+    for label in ("A: Assessment", "P: Plan"):
+        next(
+            field for field in app.text_area if field.label.startswith(label)
+        ).set_value("Not documented.")
     next(button for button in app.button if button.label == "Save draft").click()
     app.run()
     assert not app.exception, app.exception
 
     report_url = f"{_BACKEND_URL}/reports/{report_id}"
-    saved = client.get(report_url).raise_for_status().json()
+    headers = {"Authorization": f"Bearer {app.session_state['auth_token']}"}
+    saved = client.get(report_url, headers=headers).raise_for_status().json()
+    assert saved["owner_id"] == app.session_state["auth_user"]["user_id"]
     assert saved["notes"] == _NOTES
     assert saved["sections"]["data"] == _DATA
-    response = client.get(f"{report_url}/download").raise_for_status()
+    response = client.get(f"{report_url}/download", headers=headers).raise_for_status()
     assert response.headers["content-type"] == "application/pdf"
     # Read the exported content to verify the packaged template and saved DAP text.
     pdf = PdfReader(BytesIO(response.content), strict=True)
     assert _DATA in pdf.pages[0].extract_text()
+
+    # Regular users cannot approve, including when they own the report.
+    assert (
+        client.post(
+            f"{report_url}/approve",
+            json={"revision": saved["revision"]},
+            headers=headers,
+        ).status_code
+        == 403
+    )
+    assert client.get(f"{_BACKEND_URL}/users", headers=headers).status_code == 403
+    admin = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "admin", "password": "password1234"},
+        )
+        .raise_for_status()
+        .json()
+    )
+    admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+    accounts = (
+        client.get(f"{_BACKEND_URL}/users", headers=admin_headers)
+        .raise_for_status()
+        .json()
+    )
+    assert {account["username"] for account in accounts} == {"admin", "user"}
+    assert all("password_hash" not in account for account in accounts)
+    approved = (
+        client.post(
+            f"{report_url}/approve",
+            json={"revision": saved["revision"]},
+            headers=admin_headers,
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert approved["approved_by"] == admin["user"]["display_name"]
+    assert (
+        client.delete(
+            report_url, params={"revision": approved["revision"]}, headers=headers
+        ).status_code
+        == 409
+    )
+
+    next(button for button in app.button if button.label == "Sign out").click()
+    app.run()
+    assert not app.exception, app.exception
+    assert "report" not in app.session_state
+    assert "auth_token" not in app.session_state
+    assert client.get(report_url, headers=headers).status_code == 401
+    # Password recovery works in the installed package without restoring old tokens.
+    replacement = "Synthetic installed reset password!"
+    client.post(
+        f"{_BACKEND_URL}/users/{saved['owner_id']}/reset-password",
+        json={"password": replacement},
+        headers=admin_headers,
+    ).raise_for_status()
+    assert (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "user", "password": "password1234"},
+        ).status_code
+        == 401
+    )
+    recovered = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "user", "password": replacement},
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert recovered["user"]["user_id"] == saved["owner_id"]
+    assert client.get(report_url, headers=headers).status_code == 401
+    changed_password = "Synthetic installed self-service password!"
+    recovered_headers = {"Authorization": f"Bearer {recovered['access_token']}"}
+    client.post(
+        f"{_BACKEND_URL}/auth/change-password",
+        json={"current_password": replacement, "new_password": changed_password},
+        headers=recovered_headers,
+    ).raise_for_status()
+    assert (
+        client.get(f"{_BACKEND_URL}/auth/me", headers=recovered_headers).status_code
+        == 401
+    )
+    changed = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "user", "password": changed_password},
+        )
+        .raise_for_status()
+        .json()
+    )
+    changed_headers = {"Authorization": f"Bearer {changed['access_token']}"}
+    renamed = (
+        client.patch(
+            f"{_BACKEND_URL}/users/{saved['owner_id']}/profile",
+            json={"username": "renamed-user", "display_name": "Renamed User"},
+            headers=admin_headers,
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert renamed["user_id"] == saved["owner_id"]
+    assert (
+        client.get(f"{_BACKEND_URL}/auth/me", headers=changed_headers).status_code
+        == 401
+    )
+    renamed_login = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "renamed-user", "password": changed_password},
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert (
+        client.get(
+            report_url,
+            headers={"Authorization": f"Bearer {renamed_login['access_token']}"},
+        ).status_code
+        == 200
+    )
+
+    # Validate role management against the installed API, preserving report identity.
+    promoted = (
+        client.patch(
+            f"{_BACKEND_URL}/users/{saved['owner_id']}/role",
+            json={"role": "admin"},
+            headers=admin_headers,
+        )
+        .raise_for_status()
+        .json()
+    )
+    assert promoted["user_id"] == saved["owner_id"]
+    assert promoted["role"] == "admin"
+    assert (
+        client.get(
+            f"{_BACKEND_URL}/auth/me",
+            headers={"Authorization": f"Bearer {renamed_login['access_token']}"},
+        ).status_code
+        == 401
+    )
+    fresh = (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "renamed-user", "password": changed_password},
+        )
+        .raise_for_status()
+        .json()
+    )
+    promoted_headers = {"Authorization": f"Bearer {fresh['access_token']}"}
+    assert (
+        client.get(f"{_BACKEND_URL}/users", headers=promoted_headers).status_code == 200
+    )
+    client.patch(
+        f"{_BACKEND_URL}/users/{saved['owner_id']}/role",
+        json={"role": "user"},
+        headers=admin_headers,
+    ).raise_for_status()
+    assert (
+        client.get(f"{_BACKEND_URL}/auth/me", headers=promoted_headers).status_code
+        == 401
+    )
+
+    events_response = client.get(
+        f"{_BACKEND_URL}/users/audit-events",
+        params={"target_id": saved["owner_id"]},
+        headers=admin_headers,
+    ).raise_for_status()
+    assert events_response.headers["cache-control"] == "no-store"
+    actions = {event["action"] for event in events_response.json()}
+    assert {
+        "account_created",
+        "password_reset",
+        "password_changed",
+        "account_renamed",
+        "role_changed",
+    } <= actions
+    assert changed_password not in events_response.text
+    assert "$argon2" not in events_response.text
+    assert all("password" not in event["changes"] for event in events_response.json())
+    assert client.get(f"{_BACKEND_URL}/users/audit-events").status_code == 401
 
 
 def stop_launcher(process: subprocess.Popen) -> None:
@@ -109,6 +308,15 @@ def main() -> None:
         }
         # The check must resolve installed packages, not import code from the checkout.
         env.pop("PYTHONPATH", None)
+        # Provision only the temporary synthetic-data database used by this check.
+        subprocess.run(
+            [str(command), "init-demo-users"],
+            cwd=workdir,
+            env=env,
+            check=True,
+            timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW if windows else 0,
+        )
         # Keep launcher output in the CI log. On Windows, child processes can
         # keep an inherited log file open and block temporary directory cleanup.
         process = subprocess.Popen(
@@ -127,7 +335,7 @@ def main() -> None:
         finally:
             stop_launcher(process)
     print(
-        "Installed dap-assistant started both servers, saved a draft, and exported a PDF."
+        "Installed dap-assistant verified login, permissions, PDF export, account management, and credential-free audit history."
     )
 
 

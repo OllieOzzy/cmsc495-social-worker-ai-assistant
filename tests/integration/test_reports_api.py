@@ -16,11 +16,11 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from documentation_assistant import OLLAMA_REQUEST_TIMEOUT_SECONDS
 from documentation_assistant.backend.main import create_app
 from documentation_assistant.backend.schemas.reports import SavedReportMetadata
+from tests.auth_helpers import AuthenticatedTestClient as TestClient
 
 NOTES = "Synthetic student practiced a breathing exercise."
 
@@ -209,6 +209,7 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
         """Check the Ollama request and return a completed draft."""
         payload = json.loads(request.content)
         assert request.url == "http://127.0.0.1:11434/api/chat"
+        assert "authorization" not in request.headers
         assert payload["messages"][1] == {"role": "user", "content": NOTES}
         assert set(payload["format"]["required"]) == {"data", "assessment", "plan"}
         return httpx.Response(
@@ -230,6 +231,7 @@ def test_generation_returns_an_unapproved_draft(app, mock_ollama):
     assert retrieved.status_code == 200
     assert retrieved.json() == {
         **draft,
+        "owner_id": str(client.account.user_id),
         "notes": NOTES,
         "metadata": SavedReportMetadata(draft_source="ai_assisted").model_dump(
             mode="json"
@@ -461,6 +463,7 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
         for summary in summaries:
             assert set(summary) == {
                 "report_id",
+                "owner_id",
                 "status",
                 "created_at",
                 "metadata",
@@ -475,6 +478,7 @@ def test_saved_drafts_are_retrieved_by_their_own_ids(app, mock_ollama):
             assert response.status_code == 200
             assert response.json() == {
                 "report_id": report_id,
+                "owner_id": str(client.account.user_id),
                 "status": "draft",
                 "notes": notes,
                 "metadata": SavedReportMetadata(draft_source="ai_assisted").model_dump(
@@ -515,6 +519,7 @@ def test_list_reports_includes_drafts_saved_before_timestamps(app):
         assert listing.json() == [
             {
                 "report_id": report_id,
+                "owner_id": None,
                 "status": "draft",
                 "created_at": None,
                 "metadata": None,
@@ -617,7 +622,11 @@ def test_review_saves_corrections_and_only_approves_the_current_revision(
             ).status_code
             == 409
         )
-        for invalid_approval in ({"revision": 3}, {"revision": 3, "approved_by": " "}):
+        for invalid_approval in (
+            {},
+            {"revision": 0},
+            {"revision": 3, "approved_by": " "},
+        ):
             assert (
                 client.post(f"{report_url}/approve", json=invalid_approval).status_code
                 == 422
@@ -749,7 +758,7 @@ def test_reopen_clears_approval_and_allows_corrections(app):
         )
         assert approved_again.status_code == 200
         assert approved_again.json()["revision"] == 6
-        assert approved_again.json()["approved_by"] == "Jordan Example"
+        assert approved_again.json()["approved_by"] == client.account.display_name
         assert approved_again.json()["sections"] == corrected
 
 

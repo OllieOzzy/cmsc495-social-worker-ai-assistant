@@ -105,7 +105,7 @@ jobs:
       - name: Check formatting
         run: python -m ruff format --check .
 
-  # Bandit looks for common security issues in our backend code.
+  # Bandit looks for common security issues in backend and frontend code.
   python-security:
     name: Python Security
     runs-on: ubuntu-24.04
@@ -119,8 +119,10 @@ jobs:
           python-version: '3.12'
       - name: Install Bandit
         run: python -m pip install bandit==1.9.4
-      - name: Scan backend Python code
-        run: python -m bandit -r src/documentation_assistant/backend
+      - name: Scan backend and frontend Python code
+        run: >-
+          python -m bandit -r
+          src/documentation_assistant/backend src/documentation_assistant/frontend
 
   # Check our Python packages and their dependencies for known vulnerabilities.
   dependency-security:
@@ -166,7 +168,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
-  # Check how backend parts work together and save coverage separately.
+  # Check backend and frontend workflows and save coverage separately.
   integration:
     name: Integration Tests
     runs-on: ubuntu-24.04
@@ -192,7 +194,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
-  # Combine coverage from both test jobs into one backend report.
+  # Combine both test jobs, then require 90% separately for backend and frontend.
   coverage:
     name: Coverage Report
     needs: [unit, integration]
@@ -213,22 +215,35 @@ jobs:
           pattern: coverage-*
           path: coverage-data
           merge-multiple: true
-      - name: Combine and publish coverage
+      - name: Combine coverage data
+        id: combine
         run: |
           test -f coverage-data/.coverage.unit
           test -f coverage-data/.coverage.integration
           python -m coverage combine coverage-data
-          # Publish the report even when coverage falls below 90% and fails the job.
-          python -m coverage report --show-missing --precision=2 --fail-under=90 \
+      # Run both reports even if either threshold fails; retain the job failure.
+      - name: Report backend coverage
+        if: ${{ !cancelled() && steps.combine.outcome == 'success' }}
+        run: |
+          echo '## Backend coverage (90% minimum)' >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report --include='*/backend/*' \
+            --show-missing --precision=2 --fail-under=90 \
+            --format=markdown >> "$GITHUB_STEP_SUMMARY"
+      - name: Report frontend coverage
+        if: ${{ !cancelled() && steps.combine.outcome == 'success' }}
+        run: |
+          echo '## Frontend coverage (90% minimum)' >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report --include='*/frontend/*' \
+            --show-missing --precision=2 --fail-under=90 \
             --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
-  # Validate release candidates before merging; ordinary branch pushes skip wheel jobs.
+  # Build on branch pushes; release-candidate validation keeps its main-branch gate.
   build-wheel:
     name: Build Wheel
     if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) ||
       (github.event_name == 'pull_request' && github.base_ref == 'main') ||
-      (github.ref == 'refs/heads/main' &&
-       (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))
+      (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')
     needs:
       - workflow-lint
       - workflow-formatting
@@ -272,6 +287,10 @@ jobs:
 
   validate-wheel:
     name: Validate Wheel (${{ matrix.os }})
+    if: >-
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.ref == 'refs/heads/main' &&
+       (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))
     needs: build-wheel
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10

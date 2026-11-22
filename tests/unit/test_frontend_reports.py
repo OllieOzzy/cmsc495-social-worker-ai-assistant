@@ -58,6 +58,8 @@ def ui(monkeypatch):
     )
     monkeypatch.setattr(reports, "report_download", Mock())
     monkeypatch.setattr(reports, "color_expander", Mock())
+    monkeypatch.setattr(reports, "is_admin", Mock(return_value=True))
+    monkeypatch.setattr(reports, "owns_report", Mock(return_value=True))
     return streamlit
 
 
@@ -316,19 +318,21 @@ def test_approval_requires_pending_edits_to_be_saved(
     ui.error.assert_called_once_with("Save your changes before approving this report.")
 
 
-def test_approval_requires_approver_name(ui, api_request, report):
-    """Reject a blank or whitespace-only approver name."""
+def test_approval_does_not_request_an_editable_reviewer_name(ui, api_request, report):
+    """Reviewer identity comes from the session rather than an editable text field."""
     select_action(ui, "Approve saved draft")
     ui.text_input.return_value = "  "
 
+    api_request.return_value = None
     reports.review_report(report)
+    ui.text_input.assert_not_called()
+    api_request.assert_called_once_with(
+        "POST", "/reports/example/approve", payload={"revision": 3}
+    )
 
-    api_request.assert_not_called()
-    ui.error.assert_called_once_with("Enter the approver's name.")
 
-
-def test_approval_submits_trimmed_name_and_revision(ui, api_request, report):
-    """Approve the current saved revision using the manually entered name."""
+def test_approval_submits_only_revision(ui, api_request, report):
+    """Approve the saved revision without supplying a client-controlled identity."""
     select_action(ui, "Approve saved draft")
     ui.text_input.return_value = " Taylor Example "
     updated = {**report, "status": "approved", "revision": 4}
@@ -340,7 +344,7 @@ def test_approval_submits_trimmed_name_and_revision(ui, api_request, report):
     api_request.assert_called_once_with(
         "POST",
         "/reports/example/approve",
-        payload={"revision": 3, "approved_by": "Taylor Example"},
+        payload={"revision": 3},
     )
     assert ui.session_state["report"] == updated
 

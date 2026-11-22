@@ -1,0 +1,160 @@
+"""Validate stored accounts and separate public identity from password hashes."""
+
+from datetime import datetime
+from typing import Annotated, Literal
+from uuid import UUID
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    StringConstraints,
+    model_validator,
+)
+
+UserRole = Literal["user", "admin"]
+Username = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        to_lower=True,
+        min_length=3,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$",
+    ),
+]
+_AccountText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+]
+
+
+class UserAccount(BaseModel):
+    """Expose account identity and role without credential material."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+    username: Username
+    display_name: _AccountText
+    role: UserRole = "user"
+    is_active: bool = True
+    created_at: datetime
+
+
+class StoredUserAccount(UserAccount):
+    """Keep the encoded password hash internal to account and login operations.
+
+    Hashing and verification belong to the password service.
+    Exclusion prevents accidental exposure when this model is serialized.
+    """
+
+    password_hash: Annotated[str, StringConstraints(min_length=1)] = Field(
+        repr=False, exclude=True
+    )
+
+
+class LoginRequest(BaseModel):
+    """Accept credentials without exposing the password in the model's repr."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: Username
+    # Check password length during authentication, avoiding validation errors
+    # that would echo a rejected password into FastAPI's error response.
+    password: SecretStr = Field(repr=False)
+
+
+class LoginResponse(BaseModel):
+    """Return a bearer token once, with its expiry and public account identity."""
+
+    access_token: str = Field(repr=False)
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: datetime
+    user: UserAccount
+
+
+class CreateUserRequest(BaseModel):
+    """Accept administrator-provided account details without exposing passwords."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: Username
+    display_name: _AccountText
+    password: SecretStr = Field(
+        repr=False,
+        description="A new password containing 15 to 1024 characters.",
+        json_schema_extra={
+            "minLength": 15,
+            "maxLength": 1024,
+            "example": "Synthetic example passphrase!",
+        },
+    )
+    role: UserRole = "user"
+
+
+class UserStatusRequest(BaseModel):
+    """Change activation only; roles and credentials are separate operations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_active: bool = Field(strict=True)
+
+
+class UserRoleRequest(BaseModel):
+    """Change permissions without accepting names, passwords, or activation."""
+
+    model_config = ConfigDict(extra="forbid")
+    role: UserRole
+
+
+class UserProfileRequest(BaseModel):
+    """Rename identity without accepting role, activation, or password changes."""
+
+    model_config = ConfigDict(extra="forbid")
+    username: Username | None = None
+    display_name: _AccountText | None = None
+
+    @model_validator(mode="after")
+    def require_profile_change(self) -> "UserProfileRequest":
+        """Require at least one supplied name and reject explicit null values."""
+        if not self.model_fields_set or any(
+            getattr(self, field) is None for field in self.model_fields_set
+        ):
+            raise ValueError(
+                "Provide a username or display name; names cannot be null."
+            )
+        return self
+
+
+class ResetPasswordRequest(BaseModel):
+    """Accept a replacement password without exposing it in repr or validation replies."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    password: SecretStr = Field(
+        repr=False,
+        description="A replacement password containing 15 to 1024 characters.",
+        json_schema_extra={
+            "minLength": 15,
+            "maxLength": 1024,
+            "example": "Synthetic example passphrase!",
+        },
+    )
+
+
+class ChangePasswordRequest(BaseModel):
+    """Verify the current credential without accepting a target account ID."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: SecretStr = Field(repr=False)
+    new_password: SecretStr = Field(
+        repr=False,
+        description="A new password containing 15 to 1024 characters.",
+        json_schema_extra={
+            "minLength": 15,
+            "maxLength": 1024,
+            "example": "Synthetic example passphrase!",
+        },
+    )

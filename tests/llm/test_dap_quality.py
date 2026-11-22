@@ -9,9 +9,9 @@ import os
 import re
 
 import pytest
-from fastapi.testclient import TestClient
 
 from documentation_assistant.backend.main import create_app
+from tests.auth_helpers import AuthenticatedTestClient as TestClient
 
 pytestmark = pytest.mark.skipif(
     os.getenv("RUN_LIVE_OLLAMA") != "1",

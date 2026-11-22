@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 import httpx
 import streamlit as st
 
+from .auth_state import clear_session
+
 API_URL = os.getenv("DAP_API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
@@ -79,18 +81,34 @@ def request_api(method, path, *, payload=None, params=None, timeout=10, raw=Fals
     connection errors, or invalid JSON responses.
     """
     try:
+        headers = {}
+        # Credentials belong to this FastAPI request, never to the pooled
+        # client's defaults, which are also used for local Ollama requests.
+        if path not in ("/auth/login", "/health") and (
+            token := st.session_state.get("auth_token")
+        ):
+            headers["Authorization"] = f"Bearer {token}"
         # Loopback traffic stays on this computer. Remote backends retain
         # environment proxy and certificate settings, including NO_PROXY.
         response = _get_http_client(trust_env=not _is_loopback_url(API_URL)).request(
-            method, f"{API_URL}{path}", json=payload, params=params, timeout=timeout
+            method,
+            f"{API_URL}{path}",
+            json=payload,
+            params=params,
+            timeout=timeout,
+            **({"headers": headers} if headers else {}),
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 401 and path != "/auth/login":
+            clear_session("Your session is no longer valid. Please sign in again.")
+            st.rerun(scope="app")
+            return None
         message = (
             f"The server could not complete the request ({exc.response.status_code})."
         )
         # Preserve actionable validation, report conflict, and generation errors.
-        if exc.response.status_code in (409, 422, 502, 503, 504):
+        if exc.response.status_code in (401, 403, 409, 422, 429, 502, 503, 504):
             try:
                 body = exc.response.json()
             except ValueError:

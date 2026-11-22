@@ -4,9 +4,24 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Body, HTTPException, Path, Query, Request, Response
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+)
 from starlette.concurrency import run_in_threadpool
 
+from documentation_assistant.backend.auth.dependencies import (
+    AdminUser,
+    BearerCredentials,
+    CurrentUser,
+)
+from documentation_assistant.backend.auth.service import token_digest
 from documentation_assistant.backend.db import (
     ReviewConflict,
     approve_draft,
@@ -16,6 +31,10 @@ from documentation_assistant.backend.db import (
     list_drafts,
     reopen_approved_report,
     save_draft,
+)
+from documentation_assistant.backend.db.sessions import (
+    InvalidWriteSession,
+    SessionWriteGuard,
 )
 from documentation_assistant.backend.export.pdf import render_report_pdf
 from documentation_assistant.backend.llm.ollama import (
@@ -39,7 +58,15 @@ from documentation_assistant.backend.schemas.reports import (
     StoredReportDraft,
 )
 
-router = APIRouter(prefix="/reports", tags=["Reports"])
+
+def _prevent_report_caching(response: Response) -> None:
+    """Keep sensitive report JSON out of browser and intermediary caches."""
+    response.headers["Cache-Control"] = "no-store"
+
+
+router = APIRouter(
+    prefix="/reports", tags=["Reports"], dependencies=[Depends(_prevent_report_caching)]
+)
 
 _SESSION_EXAMPLE = {
     "notes": "The student practiced asking for help.",
@@ -90,6 +117,7 @@ def create_manual_report(
         ),
     ],
     request: Request,
+    user: CurrentUser,
 ) -> StoredReportDraft:
     """Save a manual draft with optional source notes and blank DAP sections."""
     metadata = (payload.metadata or ReportMetadata()).model_copy(
@@ -101,6 +129,7 @@ def create_manual_report(
         payload.notes,
         DraftSections(data="", assessment="", plan=""),
         metadata,
+        owner_id=user.user_id,
     )
 
 
@@ -115,22 +144,40 @@ async def generate_report(
         ),
     ],
     request: Request,
+    user: CurrentUser,
+    credentials: BearerCredentials,
 ) -> ReportDraft:
-    """Generate DAP sections with Ollama and save them as an unapproved draft."""
+    """Generate DAP sections and save only while the initiating session remains valid."""
     metadata = (payload.metadata or ReportMetadata()).model_copy(
         update={"draft_source": "ai_assisted"}
     )
     _validate_session_times(metadata)
     sections = await _generate_sections(payload.notes, request.app.state.ollama_client)
     # Keep the synchronous SQLite write from blocking other async requests.
-    draft = await run_in_threadpool(
-        save_draft,
-        request.app.state.database_path,
-        payload.notes,
-        sections,
-        metadata,
-    )
+    try:
+        draft = await run_in_threadpool(
+            save_draft,
+            request.app.state.database_path,
+            payload.notes,
+            sections,
+            metadata,
+            owner_id=user.user_id,
+            write_session=SessionWriteGuard(
+                user.user_id, token_digest(credentials.credentials)
+            ),
+        )
+    except InvalidWriteSession as exc:
+        raise _invalid_write_session() from exc
     return ReportDraft(report_id=draft.report_id, sections=sections)
+
+
+def _invalid_write_session() -> HTTPException:
+    """Match normal authentication failures when inference outlives its session."""
+    return HTTPException(
+        401,
+        "Invalid or expired session. Please sign in.",
+        headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
+    )
 
 
 def _validate_session_times(
@@ -170,16 +217,18 @@ async def _generate_sections(notes: str, client: httpx.AsyncClient) -> DAPSectio
 
 @router.get("", response_model=list[ReportSummary])
 def list_reports(
-    request: Request, filters: Annotated[ReportFilters, Query()]
+    request: Request, filters: Annotated[ReportFilters, Query()], user: CurrentUser
 ) -> list[ReportSummary]:
     """Return a page of saved report summaries matching the filters, newest first."""
-    return list_drafts(request.app.state.database_path, filters)
+    return list_drafts(request.app.state.database_path, filters, viewer=user)
 
 
 @router.get("/{report_id}", response_model=StoredReportDraft)
-def read_report(report_id: ReportId, request: Request) -> StoredReportDraft:
+def read_report(
+    report_id: ReportId, request: Request, user: CurrentUser
+) -> StoredReportDraft:
     """Return the saved report, including its source notes and current revision."""
-    draft = get_draft(request.app.state.database_path, report_id)
+    draft = get_draft(request.app.state.database_path, report_id, viewer=user)
     if draft is None:
         raise HTTPException(404, "Report draft not found.")
     return draft
@@ -198,9 +247,11 @@ def read_report(report_id: ReportId, request: Request) -> StoredReportDraft:
         404: {"description": "Report draft not found."},
     },
 )
-def download_report(report_id: ReportId, request: Request) -> Response:
+def download_report(
+    report_id: ReportId, request: Request, user: CurrentUser
+) -> Response:
     """Download the current saved draft or approved report as a PDF."""
-    report = read_report(report_id, request)
+    report = read_report(report_id, request, user)
     suffix = "-draft" if report.status == "draft" else ""
     filename = f"dap-{report.report_id}{suffix}.pdf"
     return Response(
@@ -228,10 +279,14 @@ def edit_report(
         ),
     ],
     request: Request,
+    user: CurrentUser,
 ) -> StoredReportDraft:
     """Update notes, DAP sections, or metadata on the current draft revision."""
+    _require_owner(read_report(report_id, request, user), user.user_id)
     try:
-        report = edit_draft(request.app.state.database_path, report_id, payload)
+        report = edit_draft(
+            request.app.state.database_path, report_id, payload, owner_id=user.user_id
+        )
     except InvalidSessionTimeRange as exc:
         raise HTTPException(422, str(exc)) from exc
     except ReviewConflict as exc:
@@ -256,12 +311,15 @@ async def regenerate_report(
         ),
     ],
     request: Request,
+    user: CurrentUser,
+    credentials: BearerCredentials,
 ) -> StoredReportDraft:
-    """Save corrected notes and regenerated DAP sections as a new revision."""
+    """Save regenerated sections only for a live session and current draft revision."""
     path = request.app.state.database_path
-    current = await run_in_threadpool(get_draft, path, report_id)
+    current = await run_in_threadpool(get_draft, path, report_id, viewer=user)
     if current is None:
         raise HTTPException(404, "Report draft not found.")
+    _require_owner(current, user.user_id)
     if current.status == "approved":
         raise HTTPException(409, "Approved reports are read-only.")
     if current.revision != payload.revision:
@@ -283,8 +341,18 @@ async def regenerate_report(
     try:
         # Check the revision again so AI output cannot overwrite a newer edit.
         report = await run_in_threadpool(
-            edit_draft, path, report_id, edit, ai_assisted=True
+            edit_draft,
+            path,
+            report_id,
+            edit,
+            ai_assisted=True,
+            owner_id=user.user_id,
+            write_session=SessionWriteGuard(
+                user.user_id, token_digest(credentials.credentials)
+            ),
         )
+    except InvalidWriteSession as exc:
+        raise _invalid_write_session() from exc
     except InvalidSessionTimeRange as exc:
         raise HTTPException(422, str(exc)) from exc
     except ReviewConflict as exc:
@@ -299,10 +367,14 @@ def delete_report(
     report_id: ReportId,
     revision: Annotated[int, Query(ge=1, le=2**63 - 1)],
     request: Request,
+    user: CurrentUser,
 ) -> Response:
     """Permanently delete a draft when the supplied revision is current."""
+    _require_owner(read_report(report_id, request, user), user.user_id)
     try:
-        deleted = delete_draft(request.app.state.database_path, report_id, revision)
+        deleted = delete_draft(
+            request.app.state.database_path, report_id, revision, owner_id=user.user_id
+        )
     except ReviewConflict as exc:
         raise HTTPException(409, str(exc)) from exc
     if not deleted:
@@ -312,7 +384,10 @@ def delete_report(
 
 @router.post("/{report_id}/approve", response_model=StoredReportDraft)
 def approve_report(
-    report_id: ReportId, payload: ApproveReportRequest, request: Request
+    report_id: ReportId,
+    payload: ApproveReportRequest,
+    request: Request,
+    user: AdminUser,
 ) -> StoredReportDraft:
     """Approve the current draft once all three DAP sections contain text."""
     try:
@@ -320,7 +395,8 @@ def approve_report(
             request.app.state.database_path,
             report_id,
             payload.revision,
-            payload.approved_by,
+            user.display_name,
+            approved_by_id=user.user_id,
         )
     except ReviewConflict as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -369,6 +445,7 @@ def reopen_report(
         ),
     ],
     request: Request,
+    user: AdminUser,
 ) -> StoredReportDraft:
     """Return an approved report to draft and clear its approval details.
 
@@ -384,3 +461,11 @@ def reopen_report(
     if report is None:
         raise HTTPException(404, "Report draft not found.")
     return report
+
+
+def _require_owner(report: StoredReportDraft, user_id: UUID) -> None:
+    """Allow admins to review others' reports without editing their content."""
+    if report.owner_id != user_id:
+        raise HTTPException(
+            403, "Only the report owner can change or delete this draft."
+        )

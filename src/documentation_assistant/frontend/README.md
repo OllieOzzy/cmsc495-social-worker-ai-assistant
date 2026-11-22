@@ -1,6 +1,6 @@
 # Streamlit Frontend
 
-The frontend lets school social workers create, review, and download Data,
+The 2.0.0 frontend lets school social workers sign in, create, review, and download Data,
 Assessment, and Plan (DAP) reports. It sends report requests to FastAPI.
 
 ## Overview Diagram
@@ -13,7 +13,7 @@ flowchart TD
     subgraph Streamlit["Streamlit frontend"]
         UI["Streamlit<br/>app.py"]
         UI --> Sidebar["Service status<br/>and report history<br/>Checks on startup<br/>and every 60 seconds"]
-        UI --> Form["New report and<br/>review screens"]
+        UI --> Form["Report and<br/>account screens"]
         UI --> Menu["App menu<br/>About and Contacts"]
         Sidebar --> Client["Frontend API<br/>client"]
         Form --> Client
@@ -46,6 +46,10 @@ flowchart LR
 
     subgraph UI["Streamlit frontend"]
         Start["Open the app"]
+        Login["Sign in<br/>Check session on reruns<br/>and every 60 seconds"]
+        Password["Change own password<br/>Verify current password and confirm replacement"]
+        ManageUsers["Manage users · Admin only<br/>Search, create, rename, change roles<br/>Activation, password reset, and audit history"]
+        Logout["Sign out, expire, or revoke<br/>Clear private browser state"]
         Status["Backend Status and AI Status<br/>Check on startup, every 60 seconds, and on click"]
         Offline["Backend Status turns red<br/>Connection error appears below the buttons"]
         Menu["App menu<br/>About and Contacts"]
@@ -64,10 +68,16 @@ flowchart LR
         Delete["Confirm and delete draft"]
         Download["Prepare and download PDF<br/>Draft or approved report"]
 
-        Start --> Status
+        Start --> Login
+        Login --> Status
+        Login --> Password
+        Password -->|"Sessions revoked"| Login
+        Login -->|"Admin"| ManageUsers
         Start --> Menu
-        Start --> Entry
-        Start --> History
+        Login --> Entry
+        Login --> History
+        Login --> Logout
+        Logout --> Login
         Status -->|"FastAPI unavailable"| Offline
         Offline -->|"Click Backend Status to recheck"| Status
 
@@ -81,14 +91,14 @@ flowchart LR
         Open -->|"New AI draft saved but could not be opened"| Retry
         Retry -->|"Use the same report ID"| Open
 
-        Review --> Edit
-        Review --> Regenerate
-        Review --> Approve
-        Review --> Delete
+        Review -->|"Owner"| Edit
+        Review -->|"Owner"| Regenerate
+        Review -->|"Admin"| Approve
+        Review -->|"Owner"| Delete
         Edit --> Review
         Regenerate --> Review
         Approve --> Approved
-        Approved --> Reopen
+        Approved -->|"Admin"| Reopen
         Reopen --> Review
         Review --> Download
         Approved --> Download
@@ -96,6 +106,8 @@ flowchart LR
 
     subgraph API["FastAPI endpoints"]
         HealthAPI["GET /health"]
+        AuthAPI["POST /auth/login<br/>GET /auth/me<br/>POST /auth/logout<br/>POST /auth/change-password"]
+        UsersAPI["Account management<br/>/users · profile · role · reset-password<br/>GET /users/audit-events"]
         ListAPI["GET /reports"]
         ManualAPI["POST /reports/manual"]
         GenerateAPI["POST /reports/generate"]
@@ -111,6 +123,10 @@ flowchart LR
     Ollama["Local Ollama<br/>GET /api/tags"]
 
     Worker --> Start
+    Login -.-> AuthAPI
+    Password -.-> AuthAPI
+    ManageUsers -.-> UsersAPI
+    Logout -.-> AuthAPI
     Status -.->|"Backend check"| HealthAPI
     Status -.->|"AI reachability check"| Ollama
     History -.-> ListAPI
@@ -131,7 +147,7 @@ flowchart LR
     classDef action fill:#FEF3C7,stroke:#B45309,color:#78350F
     classDef approved fill:#DCFCE7,stroke:#15803D,color:#14532D
 
-    class Start,Menu,Entry,History navigation
+    class Start,Login,Logout,Password,ManageUsers,Menu,Entry,History navigation
     class Manual,Open,Review,Edit report
     class Status,Generate,Regenerate,Ollama service
     class Offline,Delete error
@@ -171,7 +187,20 @@ Install the dependencies with the virtual environment's Python:
 
 ```shell
 python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
+
+Create the synthetic-data demo accounts once, using the same working directory
+and `DAP_DB_PATH` setting as the backend:
+
+```shell
+dap-assistant init-demo-users
+```
+
+The demo accounts are `admin` / `password1234` and `user` / `password1234`.
+They are not created automatically. Existing accounts are left unchanged.
+Use `dap-assistant create-user` to add another regular account, or add
+`--role admin` for an administrator. [Account setup guide](../backend/README.md#local-account-setup)
 
 ## Start the Servers
 
@@ -221,24 +250,140 @@ FastAPI, press **Ctrl+C** in its terminal. Saved reports remain in SQLite.
 
 ## Use the Frontend
 
-1. Under **History Reports**, select **New report**. Enter synthetic session
+1. **Sign in** with an account created through the setup commands. Report
+   screens and history remain hidden until FastAPI verifies the session.
+2. Under **History Reports**, select **New report**. Enter synthetic session
    notes and any optional session details. The social worker fills in the risk
    and mandated reporting fields.
-2. Select **Written by hand** to start with blank DAP sections or
+3. Select **Written by hand** to start with blank DAP sections or
    **AI-assisted draft** to generate sections from the notes. AI-assisted
    drafts require notes.
-3. In the review screen, compare the source notes with the DAP sections.
-   Select **Save draft** after editing. To approve the saved version, enter
-   the approver's name and select **Approve saved draft**.
-4. Select **Prepare PDF**, then **Download PDF**. The PDF uses the last
+4. In the review screen, compare the source notes with the DAP sections.
+   Select **Save draft** after editing your own draft. An administrator can
+   select **Approve saved draft**; the backend records the signed-in account
+   as the reviewer, so there is no editable approver-name field.
+5. Select **Prepare PDF**, then **Download PDF**. The PDF uses the last
    saved version. You can export drafts and approved reports.
 
 Use **Filter report** and **Open report** under **History Reports** to find a
-saved report. To edit an approved report, select **Reopen as draft**.
+saved report. An administrator must select **Reopen as draft** before the
+owner can edit or delete an approved report.
 History shows 25 reports per page, newest first. Use **Previous** and **Next**
 to browse matching reports. Applying or clearing filters returns to page one.
 
+### Accounts and Permissions
+
+Regular users see only their own reports. Administrators see all reports,
+including unassigned reports from older databases, and can approve or reopen
+them. Administrators view another user's content as read-only; only the owner
+can edit, regenerate, or delete an unapproved draft. Approval and reopening
+controls are hidden for regular users. The backend enforces the same rules.
+
+Use **Sign out** in the sidebar when finished. The app revokes the server
+session and clears browser-session state, including open reports, pending
+notes, filters, password widgets, and PDF state. If the backend is unavailable,
+local sign-out still clears the browser state and explains that server-side
+revocation could not be confirmed.
+
+Sessions last eight hours. Full app reruns verify the account with FastAPI;
+the idle check also verifies server-side validity every 60 seconds while the
+page is open. It reuses a recent full-page verification to avoid a duplicate
+request. A failed idle check triggers a full-page login gate so cached report
+screens are hidden during an outage, while credentials remain available for retry.
+Expired sessions and backend `401` responses clear private state and return
+to login. Role changes also clear cached reports before rendering again.
+Tokens are sent on individual FastAPI requests, never stored in a shared
+HTTP client's default headers or sent to Ollama.
+
+### Change Your Password
+
+Select **Change password** in the sidebar, enter your current password, and
+enter and confirm the replacement. Use 15–1,024 characters for the new password.
+Select **Change password** to submit. Success signs out all sessions, clears
+private browser state, and returns to login. Sign in with the new password.
+
+An incorrect current password leaves you signed in so you can retry. Five
+incorrect guesses within five minutes cause a temporary limit shared with
+login. The form never accepts another account's ID. Use **Back to reports**
+to leave settings without changing your password or selected saved report.
+
+### Manage Users
+
+Administrators have a **Manage users** button to the right of **Change password**
+in the sidebar. The sidebar starts at 420 pixels wide on desktop and can still
+be resized. The screen lists
+accounts in pages of 25, with username, display name, role, and activation status.
+Use **Previous users** and **Next users** to browse; **Back to reports** returns
+to the report screens.
+
+Use **Search accounts** to enter part of a username or display name, then
+press Enter or leave the field to apply it. Matching ignores case and includes
+inactive accounts. The backend searches all accounts before paging the results;
+**Previous users** and **Next users** keep the current search. Changing the
+query resets the page and selected account. **Clear search** restores the full
+list. No matches shows a message while account creation remains available.
+
+Expand **Create account**, enter a username and display name, choose the role,
+and enter and confirm a password of 15–1,024 characters. The default role is
+`user`. Select **Create account**; the new user can sign in immediately. Submitted
+password fields are cleared and the password is stored only as an Argon2id hash.
+
+Under **Account status**, choose an account, set **Account active**, and select
+**Save account status**. Deactivation revokes every existing session and keeps
+the account's reports. Reactivation requires a fresh login. Your own status
+controls are disabled, and the backend also protects the last active admin.
+Regular users cannot open this screen or call the management endpoints.
+
+The CLI remains available for the first administrator and demo setup.
+
+To reset a forgotten password, select the account under **Account status** and
+expand **Reset password**. Enter and confirm a new password of 15–1,024
+characters, acknowledge that every session will be signed out, and select
+**Reset password**. The account's role, activation status, and reports stay
+the same. Inactive accounts remain inactive. Resetting your own admin password
+returns you to the login screen; sign in with the new password.
+
+To edit names, select the account and expand **Rename account**. Update
+**New username**, **New display name**, or both, then select **Save account
+names**. A username change requires checking the session-revocation
+acknowledgement. The user signs in again with the new username and the same
+password. Changing your own admin username returns you to login too.
+
+Display-only edits keep sessions active and appear on the next session check.
+Names must satisfy the existing account rules; usernames must be unique.
+Report ownership, saved reports, and historical approver names are preserved.
+
+To change permissions, select the account and expand **Change role**. Choose
+**New role**, confirm the permission change and sign-out, then select **Save
+role**. An admin can view every report and approve or reopen reports; regular
+users see their own reports. Changing roles signs out every affected session.
+The user must sign in again to use the new permissions. Saving the current
+role keeps sessions active.
+
+The last active admin cannot be demoted. You may demote your own account if
+another active admin exists; this returns you to login. Promoting an inactive
+account leaves it inactive. Reports, ownership, and prior approvals are preserved.
+
+### Account Audit History
+
+In **Manage users**, turn on **Show audit history** to view account actions.
+The table shows newest actions first, with UTC time, actor and account IDs,
+username snapshots, action, and public before/after values. Names reflect the
+time of the action. CLI and other trusted local actions appear as **Local
+operation**, rather than being attributed to a signed-in user.
+
+Use **Previous events** and **Next events** for pages of 25. **Refresh history**
+returns to the newest entries. Turn off **Show audit history** to return to
+account management. History is fetched only while this view is open.
+
+Creation, name changes, activation changes, role changes, password resets, and
+self-service password changes are recorded. Password values, hashes, tokens,
+and report content are excluded. Failed changes and unchanged name, role, or
+activation saves do not add entries. Earlier actions from before this feature
+was installed are not reconstructed. Only administrators can read this history.
+
 ### Service Status
+
 
 Streamlit checks FastAPI and Ollama when the report page opens and every
 60 seconds while the session is active. The timer refreshes only the status
@@ -246,7 +391,10 @@ panel. Click **Backend Status** or **AI Status** to check immediately.
 Other full-page reruns reuse each service's result for up to 60 seconds;
 clicking a status button immediately rechecks that service.
 
-If FastAPI is down, **Backend Status** turns red and the connection error
+If FastAPI cannot verify the session, report screens stay hidden. Start the
+backend and select **Retry sign in status**, or sign out locally.
+
+Within a verified session, if a health check fails, **Backend Status** turns red and the connection error
 appears below the buttons. If report history couldn't load, start FastAPI
 and click **Backend Status** to load it. **AI Status** checks whether Ollama
 is reachable. AI-assisted drafting also needs the configured model installed.
@@ -271,8 +419,10 @@ python -m pytest tests/unit -k frontend -v
 
 The unit tests cover API response handling, Ollama status checks, report labels
 and filters, date and time conversion, screen routing, session state, report
-actions, and PDF download controls. They mock HTTP requests and Streamlit
-controls to check each module independently.
+actions, authentication state, per-request token handling, and PDF download
+controls. They also cover account and password forms, audit navigation, idle
+verification timing, and the full-page gate after a failed idle check. They mock
+HTTP requests and Streamlit controls to check each module independently.
 
 Run the frontend integration tests:
 
@@ -289,8 +439,19 @@ responses are mocked, so both suites run without a model download.
 
 | Workflow | What the integration tests verify |
 | --- | --- |
+| Login and logout | Real credential verification, rejected passwords, server session revocation, and clearing private browser state. |
+| Account boundaries | Switching users cannot retain reports, filters, or PDF state; admin demotion clears previously visible reports. |
+| Role controls and expiry | Only admins see approval/reopening controls, other owners' reports are read-only for admins, and expired or revoked sessions return to login. |
+| User management | Admin GUI creation, immediate new-user login, activation changes, session revocation, reactivation, and disabled self-deactivation controls. |
+| Account renaming | New-name login, preserved report ownership, display-only changes without logout, and admin self-rename returning to login. |
+| Account roles | Promotion and demotion with new-login permissions, session revocation, last-admin protection, and self-demotion returning to login. |
+| Account search | Name matching beyond the first page, reset pagination and selection, no matches, and clearing the query. |
+| Audit history | Authenticated actor attribution, public changes without credentials, refreshing history, and returning to account management. |
+| Idle session validity | The idle callback detects logout, deactivation, password reset, renaming, and role changes, clearing cached report/PDF state without a report action. |
+| Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
+| Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
-| Backend reconnection | A backend outage skips history loading, and a manual status check restores history after recovery. |
+| Backend reconnection | An unverifiable session hides report screens; retrying session verification restores access after recovery. |
 | Validation errors | Invalid session times display the backend explanation, retain pending edits, and leave the saved report unchanged. |
 | Proxy handling and clients | Local requests work with a configured proxy; cached clients remain isolated by session and are closed on release. |
 | History pagination | Previous/Next navigation shows the correct page; applying or clearing filters returns to page one. |
@@ -303,13 +464,20 @@ responses are mocked, so both suites run without a model download.
 | Discard changes | Saved values are restored without writing pending changes to SQLite. |
 
 Both suites run in the existing **Unit Tests** and **Integration Tests** CI jobs.
-The installed-wheel validation also exercises handwritten draft creation, saving,
+Coverage from both jobs is combined into separate backend and frontend reports.
+The frontend must meet its own 90% minimum, independently of backend coverage.
+Both reports are produced even if either threshold fails, and either failure
+blocks the wheel build.
+The installed-wheel validation also signs in before exercising handwritten draft creation, saving,
 and PDF export on Windows, Ubuntu, and macOS.
 
 ## Troubleshooting
 
 | What you see | What to do |
 | --- | --- |
+| Sign-in credentials are rejected | Check the account name and password. Run `dap-assistant init-demo-users` against the backend's database if demo accounts have not been created. |
+| Your session could not be verified | Start FastAPI and select **Retry sign in status**. You can still sign out locally. |
+| Approval or reopening controls are missing | These actions require an administrator account. Regular users can read and export their own approved reports. |
 | `ModuleNotFoundError: No module named 'documentation_assistant'` | Set `PYTHONPATH` to the repository's `src` folder and restart Streamlit. |
 | `File does not exist` when launching Streamlit | Run the command from the repository root and keep the `src/` prefix in the script path. |
 | Backend Status is red and a connection error appears below it | Start FastAPI, then click **Backend Status** to check again and load report history. |

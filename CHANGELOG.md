@@ -1,7 +1,119 @@
 # Changelog
 
-Major changes to the DAP Documentation Assistant. Versions use release tags
-such as `1.0.0` and `1.1.0`, without a `v` prefix.
+Major changes to the DAP Documentation Assistant.
+
+## 2.0.0
+
+This major release introduces authentication and account-based access.
+
+### Breaking Changes and Upgrade
+
+- Report endpoints now require a bearer session. Existing clients must sign in
+  with `POST /auth/login` before accessing reports.
+- Approval and reopening require an admin; draft editing and deletion require
+  ownership. Administrators can review all reports but cannot edit another
+  user's draft content.
+- Back up the database with the app stopped, install the 2.0.0 wheel, and create
+  the initial accounts against the same `DAP_DB_PATH` and working directory.
+- Older reports remain unassigned and admin-visible. No automatic ownership
+  assignment occurs; explicit assignment is a trusted maintenance operation.
+
+### Added
+
+- Read-only administrator account audit history in Manage users and
+  `GET /users/audit-events`, with bounded newest-first pages and optional
+  target-account filtering in the API.
+- Transactional audit entries for account creation, renaming, role and
+  activation changes, admin password resets, and self-service password changes.
+  Entries retain stable actor/target IDs and username snapshots, UTC timestamps,
+  and allowlisted public changes. No credential values or report content are logged.
+- Automatic creation of the audit table in existing databases without
+  reconstructing past events. CLI actions are recorded as local operations.
+
+- Administrator account search by partial username or display name, with
+  Unicode case-insensitive literal matching and backend pagination. Changing
+  or clearing the query resets pagination and the selected account.
+
+- Admin-only role changes in Manage users and `PATCH /users/{user_id}/role`.
+  Actual changes revoke all sessions and require a new login. Atomic checks
+  protect the last active admin across concurrent demotions and deactivations.
+  Reports and approval history are preserved, and inactive accounts stay inactive.
+- Login persistence rechecks the verified role to prevent an in-flight login
+  from issuing a session after a concurrent role change.
+
+- Local user accounts with regular-user and administrator roles, salted
+  Argon2id password hashes, and terminal account-creation commands.
+- Explicit demo setup for `admin` and `user`; existing credentials and roles
+  are preserved when setup runs again.
+- Backend login, account lookup, and logout with hashed session tokens,
+  eight-hour expiry, and persisted login-attempt throttling.
+- Report ownership, scoped history and PDF access, owner-only draft changes,
+  and administrator-only approval and reopening.
+- Streamlit sign-in and sign-out, role-based controls, session verification,
+  and clearing of private state after logout, expiry, or a revoked session.
+- Authentication and permission regression tests and authenticated
+  installed-wheel validation.
+- Administrator-only user management in Streamlit and FastAPI for listing
+  accounts, creating users, and changing activation status. Deactivation
+  revokes all sessions while preserving reports and approval records.
+- Protection against self-deactivation and removal of the last active
+  administrator, including concurrent status changes.
+- Administrator password reset through Manage users and
+  `POST /users/{user_id}/reset-password`, with matching password confirmation in
+  the UI, session revocation, and preservation of account details and reports.
+- A credential recheck when saving login sessions prevents an in-flight login
+  from issuing a token after its password is reset or its account is deactivated.
+- Self-service password change for signed-in users, requiring the current
+  password and a confirmed replacement. Successful changes revoke all sessions.
+- Password changes share the login attempt limit and recheck the verified hash
+  under the write lock, preventing stale changes from overwriting an admin reset.
+- Admin-only username and display-name editing in Manage users and
+  `PATCH /users/{user_id}/profile`. Username changes revoke sessions while
+  display-only edits keep them. IDs, reports, and past approver names are preserved.
+- Username rechecks prevent in-flight logins and password changes from
+  bypassing a concurrent username change.
+
+### Changed
+
+- CI collects backend and frontend coverage and publishes separate reports,
+  each with a 90% minimum. Both reports are produced even if one threshold fails.
+- CI's Python Security job scans both backend and frontend code with Bandit.
+- Branch pushes build a candidate wheel after all regular checks pass and
+  expose it as `app-wheel-candidate`. Cross-platform validation remains limited
+  to PRs targeting `main`, pushes to `main`, and manual runs on `main`; the final
+  versioned artifact is still uploaded only for main pushes and manual main runs.
+- Session authentication resolves the token and current public account fields
+  in one joined query and one connection, avoiding a second account lookup
+  and unnecessary password-hash reads. Expiry and permission checks remain fresh.
+- SQLite indexes support account-wide session revocation, expired-session
+  cleanup, and expired login-attempt cleanup. Startup adds them to existing
+  databases without changing account, session, or audit records.
+- Account-filtered audit history uses a direct target predicate and the
+  existing target/event index, avoiding a full-table scan and extra sorting.
+- Report endpoints require a valid bearer token. Approval records the signed-in
+  administrator's identity rather than a client-supplied reviewer name.
+- Account and session tables are added to the existing report database.
+  Older reports remain unassigned; authenticated regular users cannot see
+  them, and administrators can review them. No automatic assignment occurs.
+- Sensitive report JSON responses use `Cache-Control: no-store`, matching
+  the existing PDF and authentication response protections.
+
+### Fixed
+
+- Idle frontend sessions verify server-side validity every 60 seconds and clear
+  private state when a session is revoked. Failed checks force a full-page
+  authentication gate, and recent full-page checks avoid duplicate requests.
+- AI generation and regeneration revalidate the initiating session inside the
+  report write transaction. Revoked, expired, or disabled sessions return `401`
+  without inserting a draft or changing an existing report.
+
+### Setup Notes
+
+- Create accounts explicitly before signing in. Public demo credentials are
+  for synthetic data only; ordinary account creation requires a password of
+  15–1,024 characters.
+- Account setup and the launcher must use the same database path. Approved
+  reports remain protected from deletion, including by administrators.
 
 ## 1.1.0
 

@@ -181,6 +181,7 @@ class ReportDraft(ReportContent):
 class StoredReportDraft(ReportContent):
     """Return a saved report with its source notes, metadata, and review state."""
 
+    owner_id: UUID | None = None
     notes: Annotated[str, StringConstraints(strip_whitespace=True)]
     metadata: SavedReportMetadata | None = None
     status: ReportStatus = "draft"
@@ -198,9 +199,13 @@ class ReportRevisionRequest(BaseModel):
 
 
 class ApproveReportRequest(ReportRevisionRequest):
-    """Record who explicitly approves the saved revision."""
+    """Approve a revision; reviewer identity comes from the authenticated admin."""
 
-    approved_by: MetadataText
+    approved_by: MetadataText | None = Field(
+        default=None,
+        description="Legacy display field, ignored. The signed-in admin is recorded.",
+        deprecated=True,
+    )
 
 
 class DraftUpdateRequest(ReportRevisionRequest):
@@ -245,6 +250,7 @@ class ReportSummary(BaseModel):
     """Provide identifying details and review status for the report list."""
 
     report_id: UUID
+    owner_id: UUID | None = None
     status: ReportStatus = "draft"
     created_at: datetime | None
     metadata: SavedReportMetadata | None = None

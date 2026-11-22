@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dap-app"
-version = "1.1.0"
+version = "2.0.0"
 description = "A local DAP documentation assistant for school social workers."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,6 +12,7 @@ dependencies = [
     "fastapi==0.162.2",
     "httpx==0.28.1",
     "pydantic==2.14.3",
+    "pwdlib[argon2]==0.4.2",
     "pypdf==7.0.1",
     "reportlab==5.1.0",
     "streamlit==1.67.0",
@@ -48,5 +49,8 @@ pythonpath = [".", "src"]
 addopts = "-ra --strict-markers --import-mode=importlib"
 
 [tool.coverage.run]
-source = ["src/documentation_assistant/backend"]
+source = [
+    "src/documentation_assistant/backend",
+    "src/documentation_assistant/frontend",
+]
 relative_files = true

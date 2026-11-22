@@ -1,15 +1,24 @@
-"""Configure the Streamlit app and route between reports and team contacts."""
+"""Route Streamlit between reports, admin account management, and team contacts."""
 
 from urllib.parse import urlsplit
 
 import streamlit as st
 
+from documentation_assistant.frontend.account import (
+    show_password_change,
+    show_password_navigation,
+)
+from documentation_assistant.frontend.auth import require_login
 from documentation_assistant.frontend.reports import (
     new_report,
     open_report,
     review_report,
 )
 from documentation_assistant.frontend.sidebar import show_sidebar
+from documentation_assistant.frontend.users import (
+    show_admin_navigation,
+    show_user_management,
+)
 
 ABOUT = """## DAP Documentation Assistant
 
@@ -24,7 +33,10 @@ if app_url := st.context.url:
     )
 
 st.set_page_config(
-    page_title="DAP Documentation Assistant", layout="wide", menu_items=menu_items
+    page_title="DAP Documentation Assistant",
+    layout="wide",
+    initial_sidebar_state=420,
+    menu_items=menu_items,
 )
 
 # Serve the contacts page before rendering report navigation.
@@ -43,6 +55,21 @@ if st.query_params.get("view") == "contacts":
     st.stop()
 
 st.title("DAP Documentation Assistant")
+
+if not require_login():
+    st.stop()
+
+with st.sidebar, st.container(horizontal=True, gap="small"):
+    password_view = show_password_navigation()
+    users_view = show_admin_navigation()
+
+if password_view:
+    show_password_change()
+    st.stop()
+
+if users_view:
+    show_user_management()
+    st.stop()
 
 show_sidebar()
 
