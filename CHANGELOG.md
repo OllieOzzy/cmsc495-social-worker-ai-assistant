@@ -7,6 +7,10 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
 
 ### Added
 
+- Administrator account search by partial username or display name, with
+  Unicode case-insensitive literal matching and backend pagination. Changing
+  or clearing the query resets pagination and the selected account.
+
 - Admin-only role changes in Manage users and `PATCH /users/{user_id}/role`.
   Actual changes revoke all sessions and require a new login. Atomic checks
   protect the last active admin across concurrent demotions and deactivations.

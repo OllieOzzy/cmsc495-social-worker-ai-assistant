@@ -305,6 +305,11 @@ Administrators can use Streamlit's **Manage users** screen or these endpoints:
 
 - `GET /users?limit=25&offset=0` lists public account fields, including inactive
   accounts, alphabetically by username. Pages allow 1–100 accounts.
+  Optional `search` (at most 200 characters) matches part of a username or
+  display name, ignoring case, before pagination. Surrounding whitespace is
+  ignored; an empty search lists all accounts. `%` and `_` are literal text.
+  For example, `GET /users?search=taylor&limit=25&offset=0` finds matching users
+  across the directory. Search remains administrator-only and returns no hashes.
 - `POST /users` creates an account with `username`, `display_name`, `password`,
   and optional `role` (`user` by default, or `admin`). It uses the same
   normalization, Argon2id hashing, and 15–1,024-character password policy as

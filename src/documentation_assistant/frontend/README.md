@@ -311,6 +311,13 @@ accounts in pages of 25, with username, display name, role, and activation statu
 Use **Previous users** and **Next users** to browse; **Back to reports** returns
 to the report screens.
 
+Use **Search accounts** to enter part of a username or display name, then
+press Enter or leave the field to apply it. Matching ignores case and includes
+inactive accounts. The backend searches all accounts before paging the results;
+**Previous users** and **Next users** keep the current search. Changing the
+query resets the page and selected account. **Clear search** restores the full
+list. No matches shows a message while account creation remains available.
+
 Expand **Create account**, enter a username and display name, choose the role,
 and enter and confirm a password of 15–1,024 characters. The default role is
 `user`. Select **Create account**; the new user can sign in immediately. Submitted
@@ -412,6 +419,7 @@ responses are mocked, so both suites run without a model download.
 | User management | Admin GUI creation, immediate new-user login, activation changes, session revocation, reactivation, and disabled self-deactivation controls. |
 | Account renaming | New-name login, preserved report ownership, display-only changes without logout, and admin self-rename returning to login. |
 | Account roles | Promotion and demotion with new-login permissions, session revocation, last-admin protection, and self-demotion returning to login. |
+| Account search | Name matching beyond the first page, reset pagination and selection, no matches, and clearing the query. |
 | Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
 | Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |

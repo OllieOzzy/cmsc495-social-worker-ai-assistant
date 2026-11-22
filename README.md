@@ -91,6 +91,10 @@ Reactivation requires a fresh login. Self-deactivation is blocked, and the
 database protects the last active administrator from concurrent deactivation.
 Keep the CLI for creating the first administrator and initial demo setup.
 
+Use **Search accounts** to find users by part of their username or display
+name. Search covers all accounts, including inactive ones, and keeps results
+paginated. **Clear search** restores the full list.
+
 For forgotten passwords, an administrator can select the account in **Manage
 users**, expand **Reset password**, enter and confirm a replacement, and confirm
 that all sessions will be signed out. Resetting your own admin password returns
@@ -228,6 +232,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_user_management_api.py
     │   ├── 🧪 test_user_profile_api.py
     │   ├── 🧪 test_user_role_api.py
+    │   ├── 🧪 test_user_search_api.py
     │   └── 🧪 test_users_db.py
     ├── 📁 llm/
     │   ├── 🧪 test_dap_quality.py
