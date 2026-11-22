@@ -74,6 +74,7 @@ def login(path: Path, username: str, password: str) -> LoginResponse:
         expires_at,
         verified_password_hash=account.password_hash,
         verified_username=account.username,
+        verified_role=account.role,
     ):
         raise InvalidCredentials("Invalid username or password.")
     return LoginResponse(

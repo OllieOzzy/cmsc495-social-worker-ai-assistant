@@ -18,7 +18,7 @@ class DuplicateUsername(ValueError):
 
 
 class AccountStatusConflict(ValueError):
-    """An activation change would remove the last active administrator."""
+    """An account change would remove the last active administrator."""
 
 
 class PasswordChangeConflict(ValueError):
@@ -74,6 +74,44 @@ def set_user_active(
                 "DELETE FROM user_sessions WHERE user_id = ?", (str(user_id),)
             )
     return account.model_copy(update={"is_active": is_active})
+
+
+def set_user_role(path: Path, user_id: UUID, *, role: UserRole) -> UserAccount | None:
+    """Change permissions and revoke sessions, preserving identity and reports.
+
+    Serialize with activation changes so simultaneous demotions and
+    deactivations cannot remove every active administrator. A no-op preserves
+    sessions, and promoting an inactive account does not reactivate it.
+    """
+    if role not in ("user", "admin"):
+        raise ValueError("Invalid account role.")
+    with connect(path) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            """SELECT user_id, username, display_name, role, is_active, created_at
+               FROM users WHERE user_id = ?""",
+            (str(user_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        account = _read_public_user(row)
+        if account.role == role:
+            return account
+        if account.role == "admin" and account.is_active:
+            count = connection.execute(
+                "SELECT count(*) FROM users WHERE role = 'admin' AND is_active = 1"
+            ).fetchone()[0]
+            if count <= 1:
+                raise AccountStatusConflict(
+                    "The last active administrator cannot be demoted."
+                )
+        connection.execute(
+            "UPDATE users SET role = ? WHERE user_id = ?", (role, str(user_id))
+        )
+        connection.execute(
+            "DELETE FROM user_sessions WHERE user_id = ?", (str(user_id),)
+        )
+    return account.model_copy(update={"role": role})
 
 
 def _read_public_user(row: tuple) -> UserAccount:

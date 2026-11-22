@@ -101,6 +101,13 @@ class UserStatusRequest(BaseModel):
     is_active: bool = Field(strict=True)
 
 
+class UserRoleRequest(BaseModel):
+    """Change permissions without accepting names, passwords, or activation."""
+
+    model_config = ConfigDict(extra="forbid")
+    role: UserRole
+
+
 class UserProfileRequest(BaseModel):
     """Rename identity without accepting role, activation, or password changes."""
 
