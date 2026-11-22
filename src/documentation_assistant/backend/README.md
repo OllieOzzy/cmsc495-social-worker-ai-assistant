@@ -61,7 +61,7 @@ flowchart LR
         AuthRouter["Authentication router<br/>api/auth.py"]
         UserRouter["User management router<br/>GET/POST /users · PATCH /users/{user_id}"]
         Auth["Account and session services<br/>Argon2 verification and role checks"]
-        AuthRoutes["POST /auth/login · GET /auth/me<br/>POST /auth/logout"]
+        AuthRoutes["POST /auth/login · GET /auth/me<br/>POST /auth/logout · POST /auth/change-password"]
         Schemas["Pydantic validation<br/>schemas/reports.py"]
 
         subgraph Routes["API endpoints"]
@@ -279,6 +279,26 @@ another user's report, including its PDF, without exposing whether it exists.
 Administrator-only actions return `403` for regular users. Administrators also
 receive `403` if they attempt to edit or delete content owned by someone else.
 
+## Change Your Own Password
+
+Any signed-in account can call `POST /auth/change-password` with
+`current_password` and `new_password`. The account is taken from the bearer
+session; a target username or user ID is not accepted. New passwords follow
+the 15–1,024-character policy. Current-password verification also supports the
+shorter existing demo credentials.
+
+A successful change returns `204`, replaces the salted hash, and revokes
+every session, including the current one. Identity, role, activation, report
+ownership, and saved reports remain unchanged. Sign in again with the new
+password. An incorrect current password returns `403` without revoking the
+session. Incorrect guesses share the five-attempt, five-minute login window;
+exceeding it returns `429` with `Retry-After`.
+
+Storage checks the verified hash and activation again under the write lock.
+An intervening password reset or deactivation returns `409` rather than being
+overwritten. Invalid replacements return `422`; missing or expired sessions
+return `401`. Validation responses never echo either password.
+
 ## User Management
 
 Administrators can use Streamlit's **Manage users** screen or these endpoints:
@@ -344,6 +364,7 @@ caching sensitive report content. PDF downloads use the same protection.
 | `POST /auth/login` | Exchanges account credentials for an expiring bearer token. |
 | `GET /auth/me` | Retrieves the authenticated account's public identity and role. |
 | `POST /auth/logout` | Revokes the supplied session token. |
+| `POST /auth/change-password` | Changes the signed-in account's password after verifying its current password and revokes all sessions. |
 | `GET /users` | Administrator only: lists a bounded page of public account identities. |
 | `POST /users` | Administrator only: creates a regular or administrator account. |
 | `PATCH /users/{user_id}` | Administrator only: activates or deactivates an account. |
@@ -543,6 +564,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Integration: accounts and sessions | Account provisioning, credential checks, token storage, logout, expiry, restart persistence, disabled accounts, and login throttling. |
 | Integration: user management | Admin-only account creation and listing, activation, session revocation, password privacy, and concurrent last-admin protection. |
 | Integration: password reset | Admin access, validation, session revocation, self-reset, preserved reports, atomic rollback, throttle recovery, and in-flight login protection. |
+| Integration: password change | Current-password verification, owner-only targeting, all-session revocation, throttling, demo credentials, and protection against concurrent reset or deactivation. |
 | Integration: ownership storage | Scoped reads, filtering before pagination, preserved ownership through review actions, legacy upgrades, explicit assignment, and account foreign keys. |
 | Integration: report permissions | Real user sessions, cross-user isolation, owner-only writes, admin review, authenticated reviewer identity, revoked sessions, and ownership changes during regeneration. |
 | Integration: PDF and health | PDF downloads from saved reports and health endpoint behavior. |

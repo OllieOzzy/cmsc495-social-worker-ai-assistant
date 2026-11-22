@@ -96,6 +96,11 @@ users**, expand **Reset password**, enter and confirm a replacement, and confirm
 that all sessions will be signed out. Resetting your own admin password returns
 you to login. Existing account details and reports are preserved.
 
+Any signed-in user can select **Change password** in the sidebar to update
+their own password after verifying the current one. The replacement must
+contain 15–1,024 characters. Successful changes revoke all sessions and return
+to login; they do not change report ownership or account permissions.
+
 Account setup and the launcher must use the same working directory and
 `DAP_DB_PATH`. Accounts, session hashes, and reports share the SQLite file.
 Existing reports remain unassigned and are visible only to administrators
@@ -179,6 +184,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
 │       └── 📁 frontend/
 │           ├── 📄 README.md
 │           ├── 🐍 __init__.py
+│           ├── 🐍 account.py
 │           ├── 🐍 api_client.py
 │           ├── 🐍 app.py
 │           ├── 🐍 auth.py
@@ -195,12 +201,14 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_account_setup.py
     │   ├── 🧪 test_auth_api.py
     │   ├── 🧪 test_frontend_auth.py
+    │   ├── 🧪 test_frontend_password_change.py
     │   ├── 🧪 test_frontend_user_management.py
     │   ├── 🧪 test_frontend_recovery.py
     │   ├── 🧪 test_frontend_reports.py
     │   ├── 🧪 test_health_api.py
     │   ├── 🧪 test_report_pdf.py
     │   ├── 🧪 test_password_reset_api.py
+    │   ├── 🧪 test_password_change_api.py
     │   ├── 🧪 test_report_ownership.py
     │   ├── 🧪 test_report_permissions.py
     │   ├── 🧪 test_reports_api.py
@@ -216,6 +224,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
         ├── 🧪 test_db_connection.py
         ├── 🧪 test_drafts.py
         ├── 🧪 test_frontend_api_client.py
+        ├── 🧪 test_frontend_account.py
         ├── 🧪 test_frontend_app.py
         ├── 🧪 test_frontend_auth.py
         ├── 🧪 test_frontend_forms.py

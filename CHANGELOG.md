@@ -29,6 +29,10 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
   the UI, session revocation, and preservation of account details and reports.
 - A credential recheck when saving login sessions prevents an in-flight login
   from issuing a token after its password is reset or its account is deactivated.
+- Self-service password change for signed-in users, requiring the current
+  password and a confirmed replacement. Successful changes revoke all sessions.
+- Password changes share the login attempt limit and recheck the verified hash
+  under the write lock, preventing stale changes from overwriting an admin reset.
 
 ### Changed
 

@@ -47,6 +47,7 @@ flowchart LR
     subgraph UI["Streamlit frontend"]
         Start["Open the app"]
         Login["Sign in<br/>Verify session before rendering reports"]
+        Password["Change own password<br/>Verify current password and confirm replacement"]
         ManageUsers["Manage users · Admin only<br/>List, create, activate, and deactivate"]
         Logout["Sign out or session expires<br/>Clear reports, forms, filters, and token"]
         Status["Backend Status and AI Status<br/>Check on startup, every 60 seconds, and on click"]
@@ -69,6 +70,8 @@ flowchart LR
 
         Start --> Login
         Login --> Status
+        Login --> Password
+        Password -->|"Sessions revoked"| Login
         Login -->|"Admin"| ManageUsers
         Start --> Menu
         Login --> Entry
@@ -103,7 +106,7 @@ flowchart LR
 
     subgraph API["FastAPI endpoints"]
         HealthAPI["GET /health"]
-        AuthAPI["POST /auth/login<br/>GET /auth/me<br/>POST /auth/logout"]
+        AuthAPI["POST /auth/login<br/>GET /auth/me<br/>POST /auth/logout<br/>POST /auth/change-password"]
         UsersAPI["GET/POST /users<br/>PATCH /users/{user_id}"]
         ListAPI["GET /reports"]
         ManualAPI["POST /reports/manual"]
@@ -121,6 +124,7 @@ flowchart LR
 
     Worker --> Start
     Login -.-> AuthAPI
+    Password -.-> AuthAPI
     ManageUsers -.-> UsersAPI
     Logout -.-> AuthAPI
     Status -.->|"Backend check"| HealthAPI
@@ -143,7 +147,7 @@ flowchart LR
     classDef action fill:#FEF3C7,stroke:#B45309,color:#78350F
     classDef approved fill:#DCFCE7,stroke:#15803D,color:#14532D
 
-    class Start,Login,Logout,ManageUsers,Menu,Entry,History navigation
+    class Start,Login,Logout,Password,ManageUsers,Menu,Entry,History navigation
     class Manual,Open,Review,Edit report
     class Status,Generate,Regenerate,Ollama service
     class Offline,Delete error
@@ -288,6 +292,18 @@ to login. Role changes also clear cached reports before rendering again.
 Tokens are sent on individual FastAPI requests, never stored in a shared
 HTTP client's default headers or sent to Ollama.
 
+### Change Your Password
+
+Select **Change password** in the sidebar, enter your current password, and
+enter and confirm the replacement. Use 15–1,024 characters for the new password.
+Select **Change password** to submit. Success signs out all sessions, clears
+private browser state, and returns to login. Sign in with the new password.
+
+An incorrect current password leaves you signed in so you can retry. Five
+incorrect guesses within five minutes cause a temporary limit shared with
+login. The form never accepts another account's ID. Use **Back to reports**
+to leave settings without changing your password or selected saved report.
+
 ### Manage Users
 
 Administrators have a **Manage users** button in the sidebar. The screen lists
@@ -374,6 +390,7 @@ responses are mocked, so both suites run without a model download.
 | Role controls and expiry | Only admins see approval/reopening controls, other owners' reports are read-only for admins, and expired or revoked sessions return to login. |
 | User management | Admin GUI creation, immediate new-user login, activation changes, session revocation, reactivation, and disabled self-deactivation controls. |
 | Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
+| Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
 | Backend reconnection | An unverifiable session hides report screens; retrying session verification restores access after recovery. |
 | Validation errors | Invalid session times display the backend explanation, retain pending edits, and leave the saved report unchanged. |
