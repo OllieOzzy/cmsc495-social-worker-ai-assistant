@@ -1,9 +1,12 @@
 """Verify attribution, privacy, and transactional audit history with real accounts."""
 
 import sqlite3
+from contextlib import contextmanager
+from uuid import uuid4
 
 import pytest
 
+from documentation_assistant.backend.db import audit
 from documentation_assistant.backend.db.audit import list_audit_events
 from documentation_assistant.backend.db.connection import connect, initialize_database
 from tests.integration.test_user_management_api import PASSWORD
@@ -279,6 +282,55 @@ def test_history_requires_an_administrator(accounts, viewer, status):
         ).status_code
         == status
     )
+
+
+@pytest.mark.parametrize("scope", ["all", "user", "missing"])
+def test_audit_query_plan_and_pagination_match_requested_scope(
+    accounts, monkeypatch, scope
+):
+    """Filter interleaved real events before paging and use the target index without sorting."""
+    for index in range(6):
+        target = accounts.identities["user" if index % 2 else "admin"].user_id
+        accounts.client.patch(
+            f"/users/{target}/profile",
+            json={"display_name": f"Updated {index}"},
+            headers=accounts.headers["admin"],
+        ).raise_for_status()
+    all_events = history(accounts)
+    target_id = (
+        None
+        if scope == "all"
+        else (accounts.identities["user"].user_id if scope == "user" else uuid4())
+    )
+    expected = [
+        event
+        for event in all_events
+        if target_id is None or event["target_id"] == str(target_id)
+    ]
+    statements = []
+
+    @contextmanager
+    def traced_connect(path):
+        """Capture the SQL used by the real API handler without replacing its results."""
+        with connect(path) as connection:
+            connection.set_trace_callback(statements.append)
+            yield connection
+
+    monkeypatch.setattr(audit, "connect", traced_connect)
+    params = {"limit": 2, "offset": 1}
+    if target_id is not None:
+        params["target_id"] = str(target_id)
+    assert history(accounts, **params) == expected[1:3]
+    sql = next(
+        statement for statement in statements if statement.lstrip().startswith("SELECT")
+    )
+    with connect(accounts.path) as connection:
+        plan = " ".join(
+            row[3] for row in connection.execute("EXPLAIN QUERY PLAN " + sql)
+        )
+    assert "TEMP B-TREE" not in plan
+    if target_id is not None:
+        assert "SEARCH" in plan and "audit_events_target_id" in plan
 
 
 def test_history_is_bounded_ordered_filterable_and_read_only(accounts):
