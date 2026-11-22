@@ -43,6 +43,59 @@ def api(monkeypatch):
     return request
 
 
+@pytest.mark.parametrize("acknowledged", [False, True])
+def test_role_change_requires_confirmation(ui, api, acknowledged):
+    """A permission change needs explicit acknowledgement before reaching the API."""
+    ui.form_submit_button.return_value = True
+    ui.selectbox.side_effect = None
+    ui.selectbox.return_value = "admin"
+    ui.checkbox.return_value = acknowledged
+    api.return_value = {**ACCOUNT, "role": "admin"}
+    if acknowledged:
+        with pytest.raises(RerunRequested):
+            users._role_change_form(ACCOUNT)
+        api.assert_called_once_with(
+            "PATCH", "/users/other-id/role", payload={"role": "admin"}
+        )
+        assert (
+            "Existing sessions were signed out"
+            in ui.session_state["user_management_notice"]
+        )
+    else:
+        users._role_change_form(ACCOUNT)
+        api.assert_not_called()
+        ui.error.assert_called_once()
+
+
+def test_unchanged_role_does_not_submit(ui, api):
+    """Saving an unchanged role must not revoke sessions."""
+    ui.form_submit_button.return_value = True
+    users._role_change_form(ACCOUNT)
+    api.assert_not_called()
+    ui.info.assert_called_once_with("No role change selected.")
+
+
+def test_failed_role_change_keeps_current_session(ui, api):
+    """A rejected last-admin demotion leaves the current screen available."""
+    ui.form_submit_button.return_value = True
+    api.return_value = None
+    users._role_change_form({**ACCOUNT, "role": "admin"})
+    ui.rerun.assert_not_called()
+    assert "auth_user" in ui.session_state
+
+
+def test_self_demotion_clears_private_state(ui, api, monkeypatch):
+    """A successful self-demotion returns to login with no cached report data."""
+    monkeypatch.setattr(auth_state, "st", ui)
+    ui.form_submit_button.return_value = True
+    ui.session_state.update(auth_token="old", report={"notes": "private"})
+    own = {**ACCOUNT, "user_id": "admin-id", "role": "admin"}
+    api.return_value = {**own, "role": "user"}
+    with pytest.raises(RerunRequested):
+        users._role_change_form(own)
+    assert ui.session_state == {"auth_notice": "Role updated. Please sign in again."}
+
+
 def test_regular_user_cannot_open_management_or_keep_admin_view(ui, api, monkeypatch):
     """Hiding navigation is backed by a screen-level check as well as API permissions."""
     ui.session_state["app_view"] = "users"

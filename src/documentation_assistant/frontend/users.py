@@ -150,8 +150,43 @@ def _account_status_form(users: list[dict]) -> None:
                 f"Updated account: {updated['username']}."
             )
             st.rerun()
+    _role_change_form(account)
     _rename_account_form(account)
     _password_reset_form(account)
+
+
+def _role_change_form(account: dict) -> None:
+    """Confirm permission changes and clear the current session after self-demotion."""
+    user_id = account["user_id"]
+    roles = ("user", "admin")
+    with st.expander("Change role"), st.form(f"role_{user_id}_{account['role']}"):
+        role = st.selectbox("New role", roles, index=roles.index(account["role"]))
+        acknowledged = st.checkbox(
+            "I understand this changes permissions and signs the user out of all sessions"
+        )
+        st.caption(
+            "Admins can view all reports and approve or reopen them. The last active admin cannot be demoted. Changing a role does not activate an inactive account."
+        )
+        saved = st.form_submit_button(
+            "Save role", icon=":material/admin_panel_settings:"
+        )
+    if not saved:
+        return
+    if role == account["role"]:
+        st.info("No role change selected.")
+        return
+    if not acknowledged:
+        st.error("Confirm the permission change and sign-out of all sessions.")
+        return
+    updated = request_api("PATCH", f"/users/{user_id}/role", payload={"role": role})
+    if updated is not None:
+        if user_id == st.session_state["auth_user"]["user_id"]:
+            clear_session("Role updated. Please sign in again.")
+        else:
+            st.session_state["user_management_notice"] = (
+                f"Updated role for {updated['username']}: {updated['role']}. Existing sessions were signed out."
+            )
+        st.rerun(scope="app")
 
 
 def _rename_account_form(account: dict) -> None:
