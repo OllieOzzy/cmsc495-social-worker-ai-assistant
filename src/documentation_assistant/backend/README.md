@@ -101,11 +101,11 @@ flowchart LR
 
         Manual -->|"Save blank DAP sections"| Store
         Generate -->|"Generate DAP sections"| LLM
-        Generate -->|"Save notes and generated draft"| Store
+        Generate -->|"Check live session; save draft"| Store
         Read -->|"List, filter, or retrieve reports"| Store
         Edit -->|"Save edits against the current revision"| Store
         Regenerate -->|"Generate replacement sections"| LLM
-        Regenerate -->|"Update the same report and increment its revision"| Store
+        Regenerate -->|"Check live session and revision; save"| Store
         Review -->|"Check status and revision before writing"| Store
         Download -->|"Load the current saved report"| Store
         Download -->|"Render a draft or approved PDF"| PDF
@@ -649,18 +649,22 @@ python -m pytest tests/integration -k "not frontend" -v
 | Test group | Coverage |
 | --- | --- |
 | Unit: schemas | Notes and DAP validation, local 24-hour session times, partial time updates, and duration calculations. |
-| Unit: authentication | Password hashing and verification, account validation, command dispatch, and login decisions. |
+| Unit: authentication | Password hashing and verification, account validation, command dispatch, login decisions, public session lookup, and owner-bound write guards. |
 | Unit: storage and connections | Saving and mapping reports, missing records, connection setup, and transaction cleanup. |
 | Unit: API handlers and Ollama client | Health responses, AI response validation and failures, and HTTP error mapping when saving regenerated reports. |
 | Unit: PDF renderer | Field rendering, draft and approval markings, and continuation pages. |
 | Integration: report API | Creation, filtering, editing, approval, reopening, deletion, missing reports, and stale revisions using real SQLite storage. |
 | Integration: pagination and startup | Bounded filtered pages, pagination validation, and schema checks occurring only during startup. |
 | Integration: AI generation | Mocked generation and regeneration through FastAPI, including edits or deletion while generation is in progress. |
+| Integration: AI session validity | Logout, deactivation, password reset, renaming, role changes, or expiry during inference return `401` without saving; revocation immediately before storage is also rejected. |
 | Integration: HTTP client lifecycle | Reuse across generation and regeneration, recovery after a connection failure, and cleanup at shutdown. |
 | Integration: database compatibility | Upgrading an older table with missing columns while preserving saved notes and assigning defaults for new fields. |
 | Integration: accounts and sessions | Account provisioning, credential checks, token storage, logout, expiry, restart persistence, disabled accounts, and login throttling. |
 | Integration: user management | Admin-only account creation and listing, activation, session revocation, password privacy, and concurrent last-admin protection. |
 | Integration: account renaming | Validation, duplicate/conflicting names, stable ownership, historical approval names and PDFs, token revocation, display-only edits, rollback, and concurrent auth protection. |
+| Integration: account roles and search | Admin-only promotion/demotion, session revocation, concurrent last-admin protection, literal Unicode name matching, and filtering before pagination. |
+| Integration: account audit | Actor attribution, username snapshots, credential privacy, read-only admin access, bounded filtered history, and rollback of account/session changes if an audit insert fails. |
+| Integration: query plans and indexes | Authentication cleanup uses its indexes, startup adds missing indexes without changing records, and target-filtered audit history uses its index without extra sorting. |
 | Integration: password reset | Admin access, validation, session revocation, self-reset, preserved reports, atomic rollback, throttle recovery, and in-flight login protection. |
 | Integration: password change | Current-password verification, owner-only targeting, all-session revocation, throttling, demo credentials, and protection against concurrent reset or deactivation. |
 | Integration: ownership storage | Scoped reads, filtering before pagination, preserved ownership through review actions, legacy upgrades, explicit assignment, and account foreign keys. |

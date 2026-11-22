@@ -310,7 +310,7 @@ repository's `data/` folder.
 ```mermaid
 flowchart TD
     Worker["School social worker"]
-    UI["Streamlit frontend<br/>Sign-in and report screens"]
+    UI["Streamlit frontend<br/>Sign-in, reports, and account screens"]
     API["FastAPI backend<br/>Session and report permissions"]
     AI["Local Ollama"]
     DB[("Local SQLite<br/>Accounts, sessions, reports, and audit history")]
@@ -399,7 +399,7 @@ manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 | Python Security | Bandit scans the backend Python code. |
 | Dependency Security | pip-audit checks the dependencies in `requirements.txt` for known vulnerabilities. |
 | Unit Tests | Pytest checks backend validation, Ollama response parsing, and frontend API handling, forms, routing, and actions. |
-| Integration Tests | Pytest checks FastAPI and SQLite workflows, Streamlit report actions, recovery, proxy handling, pagination, and PDF downloads. |
+| Integration Tests | Pytest checks authenticated FastAPI/SQLite workflows, account management and audit history, idle revocation, guarded AI writes, report actions, recovery, and PDF downloads. |
 | Coverage Report | Combines unit and integration coverage, publishes the report in the run summary, and fails below 90% backend coverage. |
 | Build Wheel | Builds one candidate wheel after checks pass on any branch push, PRs targeting `main`, and manual runs on `main`. |
 | Validate Wheel | On PRs targeting `main`, pushes to `main`, and manual runs on `main`, installs the wheel on Ubuntu, Windows, and macOS and checks the installed app. |
@@ -409,7 +409,8 @@ Linting, formatting, security checks, unit tests, and integration tests run in
 parallel. Coverage waits for both test jobs. The wheel build waits for coverage
 and all other checks to pass. All branch pushes build a wheel and save it as
 the `app-wheel-candidate` artifact, which can be downloaded from the workflow
-run's **Artifacts** section. Cross-platform validation runs on pull requests
+run's **Artifacts** section. Merging into a non-main branch also triggers its
+push build. Cross-platform validation runs on pull requests
 targeting `main`, pushes to `main` (including PR merges), and manual runs on
 `main`. Other branch pushes skip validation; PRs targeting other branches,
 tag pushes, and manual runs on other branches skip the wheel jobs.
@@ -548,6 +549,8 @@ Version 2.0.0 introduces authenticated, account-based access. See the
   credentials and report content, with an admin-only history view.
 - **Authentication optimizations.** One-query session verification, indexes
   for revocation and cleanup, and indexed account-filtered audit reads.
+- **Session safeguards.** Idle pages verify server access every 60 seconds;
+  AI saves revalidate the session inside the report write transaction.
 
 ## Future Improvements
 

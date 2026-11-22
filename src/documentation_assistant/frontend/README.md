@@ -46,10 +46,10 @@ flowchart LR
 
     subgraph UI["Streamlit frontend"]
         Start["Open the app"]
-        Login["Sign in<br/>Verify session before rendering reports"]
+        Login["Sign in<br/>Check session on reruns<br/>and every 60 seconds"]
         Password["Change own password<br/>Verify current password and confirm replacement"]
         ManageUsers["Manage users · Admin only<br/>Search, create, rename, change roles<br/>Activation, password reset, and audit history"]
-        Logout["Sign out or session expires<br/>Clear reports, forms, filters, and token"]
+        Logout["Sign out, expire, or revoke<br/>Clear private browser state"]
         Status["Backend Status and AI Status<br/>Check on startup, every 60 seconds, and on click"]
         Offline["Backend Status turns red<br/>Connection error appears below the buttons"]
         Menu["App menu<br/>About and Contacts"]
@@ -417,8 +417,10 @@ python -m pytest tests/unit -k frontend -v
 
 The unit tests cover API response handling, Ollama status checks, report labels
 and filters, date and time conversion, screen routing, session state, report
-actions, authentication state, per-request token handling, and PDF download controls. They mock HTTP requests and Streamlit
-controls to check each module independently.
+actions, authentication state, per-request token handling, and PDF download
+controls. They also cover account and password forms, audit navigation, idle
+verification timing, and the full-page gate after a failed idle check. They mock
+HTTP requests and Streamlit controls to check each module independently.
 
 Run the frontend integration tests:
 
@@ -442,8 +444,8 @@ responses are mocked, so both suites run without a model download.
 | Account renaming | New-name login, preserved report ownership, display-only changes without logout, and admin self-rename returning to login. |
 | Account roles | Promotion and demotion with new-login permissions, session revocation, last-admin protection, and self-demotion returning to login. |
 | Account search | Name matching beyond the first page, reset pagination and selection, no matches, and clearing the query. |
-| Audit history | Authenticated actor attribution, public changes without credentials, returning to management, and transaction rollback when history cannot be saved. |
-| Idle session validity | Server revocation clears cached report and PDF state without a report action; recent verification is reused, and outages trigger the full-page login gate. |
+| Audit history | Authenticated actor attribution, public changes without credentials, refreshing history, and returning to account management. |
+| Idle session validity | The idle callback detects logout, deactivation, password reset, renaming, and role changes, clearing cached report/PDF state without a report action. |
 | Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
 | Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |
