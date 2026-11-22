@@ -4,6 +4,10 @@ from urllib.parse import urlsplit
 
 import streamlit as st
 
+from documentation_assistant.frontend.account import (
+    show_password_change,
+    show_password_navigation,
+)
 from documentation_assistant.frontend.auth import require_login
 from documentation_assistant.frontend.reports import (
     new_report,
@@ -50,6 +54,10 @@ if st.query_params.get("view") == "contacts":
 st.title("DAP Documentation Assistant")
 
 if not require_login():
+    st.stop()
+
+if show_password_navigation():
+    show_password_change()
     st.stop()
 
 if show_admin_navigation():
