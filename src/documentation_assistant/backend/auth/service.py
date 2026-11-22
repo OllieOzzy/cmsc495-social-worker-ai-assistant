@@ -14,7 +14,7 @@ from documentation_assistant.backend.auth.passwords import (
 )
 from documentation_assistant.backend.db.sessions import (
     delete_session,
-    get_session_user_id,
+    get_session_user,
     reserve_login_attempt,
     save_session,
 )
@@ -85,14 +85,13 @@ def login(path: Path, username: str, password: str) -> LoginResponse:
 
 
 def authenticate_session(path: Path, token: str) -> UserAccount:
-    """Resolve a live token and reread current account status and role each time."""
+    """Resolve a live token and current public account using a single joined read."""
     if len(token) != 43:
         raise InvalidCredentials("Invalid or expired session.")
-    user_id = get_session_user_id(path, token_digest(token), int(time()))
-    account = get_user_by_id(path, user_id) if user_id is not None else None
-    if account is None or not account.is_active:
+    account = get_session_user(path, token_digest(token), int(time()))
+    if account is None:
         raise InvalidCredentials("Invalid or expired session.")
-    return UserAccount.model_validate(account.model_dump())
+    return account
 
 
 def logout(path: Path, token: str) -> None:

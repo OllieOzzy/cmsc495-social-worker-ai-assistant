@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import UUID
 
 from documentation_assistant.backend.db.connection import connect
+from documentation_assistant.backend.schemas.auth import UserAccount
 
 LOGIN_ATTEMPT_LIMIT = 5
 LOGIN_WINDOW_SECONDS = 300
@@ -74,16 +75,32 @@ def save_session(
     return True
 
 
-def get_session_user_id(path: Path, token_hash: str, now: int) -> UUID | None:
-    """Return an active account ID only while the stored session is unexpired."""
+def get_session_user(path: Path, token_hash: str, now: int) -> UserAccount | None:
+    """Resolve a live session and current public identity in one database read.
+
+    Read role and activation from the joined account on every request. Select
+    only public account fields; session verification does not need password
+    hashes or a second account lookup. Expiry remains an absolute deadline.
+    """
     with connect(path) as connection:
         row = connection.execute(
-            """SELECT s.user_id FROM user_sessions AS s
+            """SELECT u.user_id, u.username, u.display_name, u.role,
+                      u.is_active, u.created_at
+               FROM user_sessions AS s
                JOIN users AS u ON u.user_id = s.user_id
                WHERE s.token_hash = ? AND s.expires_at > ? AND u.is_active = 1""",
             (token_hash, now),
         ).fetchone()
-    return UUID(row[0]) if row else None
+    if row is None:
+        return None
+    return UserAccount(
+        user_id=row[0],
+        username=row[1],
+        display_name=row[2],
+        role=row[3],
+        is_active=row[4],
+        created_at=row[5],
+    )
 
 
 def delete_session(path: Path, token_hash: str) -> None:
