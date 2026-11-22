@@ -252,6 +252,25 @@ def check_handwritten_report(client: httpx.Client) -> None:
         == 401
     )
 
+    events_response = client.get(
+        f"{_BACKEND_URL}/users/audit-events",
+        params={"target_id": saved["owner_id"]},
+        headers=admin_headers,
+    ).raise_for_status()
+    assert events_response.headers["cache-control"] == "no-store"
+    actions = {event["action"] for event in events_response.json()}
+    assert {
+        "account_created",
+        "password_reset",
+        "password_changed",
+        "account_renamed",
+        "role_changed",
+    } <= actions
+    assert changed_password not in events_response.text
+    assert "$argon2" not in events_response.text
+    assert all("password" not in event["changes"] for event in events_response.json())
+    assert client.get(f"{_BACKEND_URL}/users/audit-events").status_code == 401
+
 
 def stop_launcher(process: subprocess.Popen) -> None:
     """Stop the launcher and its server processes after the check."""
@@ -316,7 +335,7 @@ def main() -> None:
         finally:
             stop_launcher(process)
     print(
-        "Installed dap-assistant verified login, permissions, PDF export, password recovery, password change, account rename, and role changes."
+        "Installed dap-assistant verified login, permissions, PDF export, account management, and credential-free audit history."
     )
 
 
