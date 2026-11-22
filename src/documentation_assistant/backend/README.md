@@ -674,6 +674,11 @@ python -m pytest tests/integration -k "not frontend" -v
 The database unit tests cover the existing-column path; the compatibility
 integration test exercises the missing-column upgrade against real SQLite.
 
+CI combines coverage from the unit and integration jobs, then publishes
+separate backend and frontend reports. Each component must reach at least 90%.
+Both reports run even if one threshold fails; either failure blocks the wheel
+build. The shared coverage configuration records both components locally too.
+
 To run the backend and frontend suites together:
 
 ```shell

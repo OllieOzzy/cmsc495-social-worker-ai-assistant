@@ -49,5 +49,8 @@ pythonpath = [".", "src"]
 addopts = "-ra --strict-markers --import-mode=importlib"
 
 [tool.coverage.run]
-source = ["src/documentation_assistant/backend"]
+source = [
+    "src/documentation_assistant/backend",
+    "src/documentation_assistant/frontend",
+]
 relative_files = true

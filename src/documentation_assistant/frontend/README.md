@@ -462,6 +462,10 @@ responses are mocked, so both suites run without a model download.
 | Discard changes | Saved values are restored without writing pending changes to SQLite. |
 
 Both suites run in the existing **Unit Tests** and **Integration Tests** CI jobs.
+Coverage from both jobs is combined into separate backend and frontend reports.
+The frontend must meet its own 90% minimum, independently of backend coverage.
+Both reports are produced even if either threshold fails, and either failure
+blocks the wheel build.
 The installed-wheel validation also signs in before exercising handwritten draft creation, saving,
 and PDF export on Windows, Ubuntu, and macOS.
 

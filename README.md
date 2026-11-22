@@ -351,7 +351,7 @@ flowchart TD
     Start --> Unit["Unit tests"]
     Start --> Integration["Integration tests"]
 
-    Unit --> Coverage["Backend coverage report · 90% minimum"]
+    Unit --> Coverage["Backend and frontend coverage<br/>90% minimum each"]
     Integration --> Coverage
     Checks --> Eligible{"Branch push, PR to main,<br/>or manual run on main?"}
     Coverage --> Eligible
@@ -400,7 +400,7 @@ manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 | Dependency Security | pip-audit checks the dependencies in `requirements.txt` for known vulnerabilities. |
 | Unit Tests | Pytest checks backend validation, Ollama response parsing, and frontend API handling, forms, routing, and actions. |
 | Integration Tests | Pytest checks authenticated FastAPI/SQLite workflows, account management and audit history, idle revocation, guarded AI writes, report actions, recovery, and PDF downloads. |
-| Coverage Report | Combines unit and integration coverage, publishes the report in the run summary, and fails below 90% backend coverage. |
+| Coverage Report | Combines unit and integration coverage, publishes separate backend/frontend reports, and requires at least 90% for each. Both reports run even if one threshold fails. |
 | Build Wheel | Builds one candidate wheel after checks pass on any branch push, PRs targeting `main`, and manual runs on `main`. |
 | Validate Wheel | On PRs targeting `main`, pushes to `main`, and manual runs on `main`, installs the wheel on Ubuntu, Windows, and macOS and checks the installed app. |
 | Upload Validated Wheel | Adds the versioned ZIP after all three validations pass, only on pushes or manual runs on `main`. |

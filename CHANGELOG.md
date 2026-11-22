@@ -1,7 +1,6 @@
 # Changelog
 
-Major changes to the DAP Documentation Assistant. Versions use release tags
-such as `1.0.0`, `1.1.0`, and `2.0.0`, without a `v` prefix.
+Major changes to the DAP Documentation Assistant.
 
 ## 2.0.0
 
@@ -76,6 +75,8 @@ This major release introduces authentication and account-based access.
 
 ### Changed
 
+- CI collects backend and frontend coverage and publishes separate reports,
+  each with a 90% minimum. Both reports are produced even if one threshold fails.
 - CI's Python Security job scans both backend and frontend code with Bandit.
 - Branch pushes build a candidate wheel after all regular checks pass and
   expose it as `app-wheel-candidate`. Cross-platform validation remains limited

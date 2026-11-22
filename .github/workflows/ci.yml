@@ -168,7 +168,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
-  # Check how backend parts work together and save coverage separately.
+  # Check backend and frontend workflows and save coverage separately.
   integration:
     name: Integration Tests
     runs-on: ubuntu-24.04
@@ -194,7 +194,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
-  # Combine coverage from both test jobs into one backend report.
+  # Combine both test jobs, then require 90% separately for backend and frontend.
   coverage:
     name: Coverage Report
     needs: [unit, integration]
@@ -215,13 +215,26 @@ jobs:
           pattern: coverage-*
           path: coverage-data
           merge-multiple: true
-      - name: Combine and publish coverage
+      - name: Combine coverage data
+        id: combine
         run: |
           test -f coverage-data/.coverage.unit
           test -f coverage-data/.coverage.integration
           python -m coverage combine coverage-data
-          # Publish the report even when coverage falls below 90% and fails the job.
-          python -m coverage report --show-missing --precision=2 --fail-under=90 \
+      # Run both reports even if either threshold fails; retain the job failure.
+      - name: Report backend coverage
+        if: ${{ !cancelled() && steps.combine.outcome == 'success' }}
+        run: |
+          echo '## Backend coverage (90% minimum)' >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report --include='*/backend/*' \
+            --show-missing --precision=2 --fail-under=90 \
+            --format=markdown >> "$GITHUB_STEP_SUMMARY"
+      - name: Report frontend coverage
+        if: ${{ !cancelled() && steps.combine.outcome == 'success' }}
+        run: |
+          echo '## Frontend coverage (90% minimum)' >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report --include='*/frontend/*' \
+            --show-missing --precision=2 --fail-under=90 \
             --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
   # Build on branch pushes; release-candidate validation keeps its main-branch gate.
