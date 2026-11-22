@@ -134,6 +134,7 @@ def change_password(
             password_hash=hash_password(new_password),
             verified_password_hash=account.password_hash,
             verified_username=account.username,
+            actor_id=user_id,
         )
         is None
     ):

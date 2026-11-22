@@ -11,6 +11,7 @@ from documentation_assistant.backend.auth.passwords import (
     hash_password,
     validate_new_password,
 )
+from documentation_assistant.backend.db.audit import list_audit_events
 from documentation_assistant.backend.db.users import (
     AccountStatusConflict,
     DuplicateUsername,
@@ -21,6 +22,7 @@ from documentation_assistant.backend.db.users import (
     set_user_active,
     set_user_role,
 )
+from documentation_assistant.backend.schemas.audit import AuditEvent
 from documentation_assistant.backend.schemas.auth import (
     CreateUserRequest,
     ResetPasswordRequest,
@@ -51,6 +53,25 @@ def read_users(
     )
 
 
+@router.get("/audit-events", response_model=list[AuditEvent])
+def read_audit_history(
+    request: Request,
+    response: Response,
+    admin: AdminUser,
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
+    target_id: UUID | None = None,
+) -> list[AuditEvent]:
+    """Read committed account actions without exposing credentials or report content."""
+    response.headers["Cache-Control"] = "no-store"
+    return list_audit_events(
+        request.app.state.database_path,
+        limit=limit,
+        offset=offset,
+        target_id=target_id,
+    )
+
+
 @router.post("", response_model=UserAccount, status_code=201)
 def add_user(
     payload: CreateUserRequest,
@@ -74,6 +95,7 @@ def add_user(
             display_name=payload.display_name,
             password_hash=hash_password(password),
             role=payload.role,
+            actor_id=admin.user_id,
         )
     except DuplicateUsername as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -94,7 +116,10 @@ def change_user_status(
         raise HTTPException(409, "You cannot deactivate your own account.")
     try:
         account = set_user_active(
-            request.app.state.database_path, user_id, is_active=payload.is_active
+            request.app.state.database_path,
+            user_id,
+            is_active=payload.is_active,
+            actor_id=admin.user_id,
         )
     except AccountStatusConflict as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -124,6 +149,7 @@ def reset_account_password(
         request.app.state.database_path,
         user_id,
         password_hash=hash_password(password),
+        actor_id=admin.user_id,
     )
     if account is None:
         raise HTTPException(404, "Account not found.")
@@ -142,7 +168,10 @@ def change_account_role(
     response.headers["Cache-Control"] = "no-store"
     try:
         account = set_user_role(
-            request.app.state.database_path, user_id, role=payload.role
+            request.app.state.database_path,
+            user_id,
+            role=payload.role,
+            actor_id=admin.user_id,
         )
     except AccountStatusConflict as exc:
         raise HTTPException(
@@ -171,6 +200,7 @@ def rename_account(
             user_id,
             username=payload.username,
             display_name=payload.display_name,
+            actor_id=admin.user_id,
         )
     except DuplicateUsername as exc:
         raise HTTPException(409, str(exc)) from exc
