@@ -25,6 +25,18 @@ def show_admin_navigation() -> bool:
     return selected
 
 
+def _reset_user_search() -> None:
+    """Start at the first result and discard selection from the previous search."""
+    st.session_state["users_offset"] = 0
+    st.session_state.pop("managed_user_id", None)
+
+
+def _clear_user_search() -> None:
+    """Clear the search widget before the next render and restore all accounts."""
+    st.session_state["users_search"] = ""
+    _reset_user_search()
+
+
 def show_user_management() -> None:
     """List a bounded page of accounts, create accounts, and change activation."""
     if not is_admin():
@@ -33,15 +45,27 @@ def show_user_management() -> None:
     st.header("Manage users")
     if notice := st.session_state.pop("user_management_notice", None):
         st.success(notice)
-    offset = st.session_state.get("users_offset", 0)
-    users = request_api(
-        "GET", "/users", params={"limit": _PAGE_SIZE + 1, "offset": offset}
+    st.text_input(
+        "Search accounts",
+        key="users_search",
+        max_chars=200,
+        placeholder="Username or display name",
+        on_change=_reset_user_search,
     )
+    search = st.session_state.get("users_search", "").strip()
+    st.button("Clear search", disabled=not search, on_click=_clear_user_search)
+    offset = st.session_state.get("users_offset", 0)
+    params = {"limit": _PAGE_SIZE + 1, "offset": offset}
+    if search:
+        params["search"] = search
+    users = request_api("GET", "/users", params=params)
     if users is None:
         if st.button("Refresh users"):
             st.rerun()
         return
     visible = users[:_PAGE_SIZE]
+    if not visible:
+        st.info("No matching accounts." if search else "No accounts found.")
     st.dataframe(
         [
             {

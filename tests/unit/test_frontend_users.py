@@ -215,6 +215,32 @@ def test_account_pagination_requests_one_extra_row(ui, api, label, offset, expec
     assert ui.session_state["users_offset"] == expected
 
 
+def test_search_is_preserved_in_paginated_requests(ui, api):
+    """Send the active query to the backend rather than filtering one loaded page."""
+    ui.session_state.update(users_search="  Taylor  ", users_offset=25)
+    api.return_value = []
+    users.show_user_management()
+    api.assert_called_once_with(
+        "GET", "/users", params={"limit": 26, "offset": 25, "search": "Taylor"}
+    )
+    ui.info.assert_called_once_with("No matching accounts.")
+
+
+@pytest.mark.parametrize("clear", [False, True])
+def test_search_changes_reset_pagination_and_selection(ui, clear):
+    """Avoid stale page offsets or selected accounts after changing the query."""
+    ui.session_state.update(
+        users_search="Taylor", users_offset=25, managed_user_id="old"
+    )
+    if clear:
+        users._clear_user_search()
+    else:
+        users._reset_user_search()
+    assert ui.session_state["users_offset"] == 0
+    assert "managed_user_id" not in ui.session_state
+    assert ui.session_state["users_search"] == ("" if clear else "Taylor")
+
+
 @pytest.mark.parametrize(
     "values, acknowledged, message",
     [
