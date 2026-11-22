@@ -235,6 +235,11 @@ Using a session does not extend its lifetime. SQLite stores only token hashes;
 keep the returned token private. The backend checks account activity and the
 current role on authenticated requests.
 
+Session verification joins the session and account in one query using one
+connection. It selects only public identity fields, checks expiry and activation,
+and reads the current role on every request. No password hash is needed for
+session verification, and permissions are not cached between requests.
+
 Five unsuccessful attempts for the same normalized username within five
 minutes cause further attempts to return `429` with a `Retry-After` header.
 The counter persists across backend restarts and resets after a successful

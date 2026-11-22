@@ -274,6 +274,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
         ├── 🧪 test_pdf_renderer.py
         ├── 🧪 test_report_handlers.py
         ├── 🧪 test_report_schemas.py
+        ├── 🧪 test_sessions.py
         ├── 🧪 test_user_schemas.py
         └── 🧪 test_users.py
 ```
