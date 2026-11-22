@@ -76,6 +76,10 @@ This major release introduces authentication and account-based access.
 
 ### Changed
 
+- Branch pushes build a candidate wheel after all regular checks pass and
+  expose it as `app-wheel-candidate`. Cross-platform validation remains limited
+  to PRs targeting `main`, pushes to `main`, and manual runs on `main`; the final
+  versioned artifact is still uploaded only for main pushes and manual main runs.
 - Session authentication resolves the token and current public account fields
   in one joined query and one connection, avoiding a second account lookup
   and unnecessary password-hash reads. Expiry and permission checks remain fresh.

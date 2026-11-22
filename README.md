@@ -353,14 +353,16 @@ flowchart TD
 
     Unit --> Coverage["Backend coverage report · 90% minimum"]
     Integration --> Coverage
-    Checks --> Eligible{"PR to main, push to main,<br/>or manual run on main?"}
+    Checks --> Eligible{"Branch push, PR to main,<br/>or manual run on main?"}
     Coverage --> Eligible
     Eligible -->|"Yes, after all checks pass"| Build["Build one wheel"]
     Eligible -->|"Other CI runs"| Skip["Skip wheel jobs"]
 
-    Build --> Windows["Validate on Windows"]
-    Build --> Linux["Validate on Ubuntu"]
-    Build --> Mac["Validate on macOS"]
+    Build --> ValidateEligible{"PR to main, push to main,<br/>or manual run on main?"}
+    ValidateEligible -->|"Yes"| Windows["Validate on Windows"]
+    ValidateEligible -->|"Yes"| Linux["Validate on Ubuntu"]
+    ValidateEligible -->|"Yes"| Mac["Validate on macOS"]
+    ValidateEligible -->|"Other branch pushes"| Candidate["Candidate wheel available"]
 
     Windows --> Validated["All three wheel validations pass"]
     Linux --> Validated
@@ -380,8 +382,8 @@ flowchart TD
     class Checks,Unit,Integration,Coverage checks
     class Build build
     class Windows,Linux,Mac,Validated validation
-    class Eligible,ReleaseEligible decision
-    class Upload artifact
+    class Eligible,ValidateEligible,ReleaseEligible decision
+    class Upload,Candidate artifact
 ```
 
 The [CI Pipeline](.github/workflows/ci.yml) runs on pushes, pull requests, and
@@ -399,15 +401,18 @@ manual runs. It uses Ubuntu 24.04 and Python 3.12 for the Python checks.
 | Unit Tests | Pytest checks backend validation, Ollama response parsing, and frontend API handling, forms, routing, and actions. |
 | Integration Tests | Pytest checks FastAPI and SQLite workflows, Streamlit report actions, recovery, proxy handling, pagination, and PDF downloads. |
 | Coverage Report | Combines unit and integration coverage, publishes the report in the run summary, and fails below 90% backend coverage. |
-| Build Wheel | Builds one wheel after checks pass on PRs targeting `main`, pushes to `main`, and manual runs on `main`. |
-| Validate Wheel | Installs the wheel on Ubuntu, Windows, and macOS with Python 3.12 and checks that the installed app can save a draft and export a PDF. |
+| Build Wheel | Builds one candidate wheel after checks pass on any branch push, PRs targeting `main`, and manual runs on `main`. |
+| Validate Wheel | On PRs targeting `main`, pushes to `main`, and manual runs on `main`, installs the wheel on Ubuntu, Windows, and macOS and checks the installed app. |
 | Upload Validated Wheel | Adds the versioned ZIP after all three validations pass, only on pushes or manual runs on `main`. |
 
 Linting, formatting, security checks, unit tests, and integration tests run in
 parallel. Coverage waits for both test jobs. The wheel build waits for coverage
-and all other checks to pass. Wheel building and validation run on pull requests
+and all other checks to pass. All branch pushes build a wheel and save it as
+the `app-wheel-candidate` artifact, which can be downloaded from the workflow
+run's **Artifacts** section. Cross-platform validation runs on pull requests
 targeting `main`, pushes to `main` (including PR merges), and manual runs on
-`main`. Ordinary branch pushes and PRs targeting other branches skip those jobs.
+`main`. Other branch pushes skip validation; PRs targeting other branches,
+tag pushes, and manual runs on other branches skip the wheel jobs.
 The final versioned artifact upload runs only on pushes and manual runs on
 `main`; PR runs upload a candidate wheel only for cross-platform validation.
 The regular pipeline uses synthetic data and mocks

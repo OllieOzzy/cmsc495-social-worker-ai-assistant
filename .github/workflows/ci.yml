@@ -222,13 +222,13 @@ jobs:
           python -m coverage report --show-missing --precision=2 --fail-under=90 \
             --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
-  # Validate release candidates before merging; ordinary branch pushes skip wheel jobs.
+  # Build on branch pushes; release-candidate validation keeps its main-branch gate.
   build-wheel:
     name: Build Wheel
     if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) ||
       (github.event_name == 'pull_request' && github.base_ref == 'main') ||
-      (github.ref == 'refs/heads/main' &&
-       (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))
+      (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')
     needs:
       - workflow-lint
       - workflow-formatting
@@ -272,6 +272,10 @@ jobs:
 
   validate-wheel:
     name: Validate Wheel (${{ matrix.os }})
+    if: >-
+      (github.event_name == 'pull_request' && github.base_ref == 'main') ||
+      (github.ref == 'refs/heads/main' &&
+       (github.event_name == 'push' || github.event_name == 'workflow_dispatch'))
     needs: build-wheel
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
