@@ -114,6 +114,18 @@ def initialize_database(path: Path) -> None:
                 window_started_at INTEGER NOT NULL
             )
         """)
+        # Token and username primary keys cover direct lookups. These indexes
+        # cover account-wide revocation and expiry cleanup without table scans.
+        # IF NOT EXISTS also upgrades existing databases at the next startup.
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS user_sessions_user_id ON user_sessions(user_id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS user_sessions_expires_at ON user_sessions(expires_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS login_attempts_window_started_at ON login_attempts(window_started_at)"
+        )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS report_drafts_owner_id ON report_drafts(owner_id)"
         )
