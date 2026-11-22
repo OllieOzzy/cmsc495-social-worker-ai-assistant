@@ -1,5 +1,7 @@
 """Render login and logout while gating report screens on a verified session."""
 
+from time import monotonic
+
 import streamlit as st
 
 from .api_client import request_api
@@ -15,8 +17,56 @@ def _expire_if_needed() -> None:
 
 @st.fragment(run_every=60)
 def check_session_expiry() -> None:
-    """Check the local expiry deadline while the page is idle."""
+    """Verify local expiry and server-side validity while the page is idle."""
+    _verify_idle_session()
+
+
+def _valid_identity(user) -> bool:
+    """Require the public identity fields used by navigation and report permissions."""
+    return (
+        isinstance(user, dict)
+        and bool(user.get("user_id"))
+        and bool(user.get("username"))
+        and user.get("role") in ("user", "admin")
+    )
+
+
+def _accept_identity(user: dict) -> None:
+    """Store verified identity, clearing private state if its access scope changed."""
+    previous = st.session_state.get("auth_user", {})
+    if any(previous.get(field) != user.get(field) for field in ("user_id", "role")):
+        token = st.session_state["auth_token"]
+        expires = st.session_state["auth_expires_at"]
+        clear_session()
+        st.session_state.update(
+            auth_token=token,
+            auth_expires_at=expires,
+            auth_user=user,
+            auth_verified_at=monotonic(),
+        )
+        st.rerun(scope="app")
+    st.session_state.update(auth_user=user, auth_verified_at=monotonic())
+
+
+def _verify_idle_session() -> None:
+    """Reuse a recent full-page check; hide the full page if an idle check fails.
+
+    request_api clears state on a 401. On an outage or malformed identity,
+    force a full rerun so require_login hides cached screens and offers retry.
+    The verification timestamp avoids a second request when the fragment is
+    first registered immediately after the normal full-page authentication.
+    """
+    if not st.session_state.get("auth_token"):
+        return
     _expire_if_needed()
+    age = monotonic() - st.session_state.get("auth_verified_at", float("-inf"))
+    if 0 <= age < 60:
+        return
+    user = request_api("GET", "/auth/me", timeout=3)
+    if not _valid_identity(user):
+        st.rerun(scope="app")
+        return
+    _accept_identity(user)
 
 
 def _sign_out() -> None:
@@ -102,28 +152,14 @@ def require_login() -> bool:
             _sign_out()
     _expire_if_needed()
     user = request_api("GET", "/auth/me", timeout=3)
-    if (
-        not isinstance(user, dict)
-        or not user.get("user_id")
-        or not user.get("username")
-        or user.get("role") not in ("user", "admin")
-    ):
+    if not _valid_identity(user):
         st.warning(
             "Your session could not be verified. Check the backend and try again."
         )
         if st.button("Retry sign in status", key="retry_session"):
             st.rerun()
         return False
-    previous = st.session_state.get("auth_user", {})
-    if any(previous.get(field) != user.get(field) for field in ("user_id", "role")):
-        token = st.session_state["auth_token"]
-        expires = st.session_state["auth_expires_at"]
-        clear_session()
-        st.session_state.update(
-            auth_token=token, auth_expires_at=expires, auth_user=user
-        )
-        st.rerun()
-    st.session_state["auth_user"] = user
+    _accept_identity(user)
     with st.sidebar:
         st.caption(
             f"Signed in as {user.get('display_name', user['username'])} · {user['role']}"

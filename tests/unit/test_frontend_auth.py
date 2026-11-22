@@ -122,6 +122,54 @@ def test_expiry_heartbeat_clears_cached_content(ui):
     assert set(ui.session_state) == {"auth_notice"}
 
 
+@pytest.mark.parametrize("age, requests", [(0, 0), (59, 0), (60, 1), (61, 1), (-1, 1)])
+def test_idle_check_reuses_only_recent_verification(ui, monkeypatch, age, requests):
+    """Avoid duplicate full-rerun requests while polling the server every minute."""
+    signed_in(ui)
+    ui.session_state["auth_verified_at"] = 1000 - age
+    monkeypatch.setattr(auth, "monotonic", lambda: 1000)
+    api = Mock(return_value=dict(USER))
+    monkeypatch.setattr(auth, "request_api", api)
+    auth._verify_idle_session()
+    assert api.call_count == requests
+    ui.rerun.assert_not_called()
+
+
+@pytest.mark.parametrize("response", [None, {}, {"user_id": "bad"}])
+def test_failed_idle_verification_hides_cached_page_with_full_rerun(
+    ui, monkeypatch, response
+):
+    """Keep the retry token on transport failures but replace the full cached screen."""
+    signed_in(ui)
+    ui.session_state["report"] = {"notes": "Private"}
+    monkeypatch.setattr(auth, "request_api", Mock(return_value=response))
+    with pytest.raises(RerunRequested):
+        auth._verify_idle_session()
+    ui.rerun.assert_called_once_with(scope="app")
+    assert ui.session_state["auth_token"] == "t" * 43
+
+
+def test_idle_identity_change_clears_private_state(ui, monkeypatch):
+    """A changed access scope clears cached reports even without a report action."""
+    signed_in(ui)
+    ui.session_state["auth_user"]["role"] = "admin"
+    ui.session_state["report"] = {"notes": "Other owner's report"}
+    monkeypatch.setattr(auth, "request_api", Mock(return_value=dict(USER)))
+    with pytest.raises(RerunRequested):
+        auth._verify_idle_session()
+    assert "report" not in ui.session_state
+    assert ui.session_state["auth_user"] == USER
+
+
+def test_signed_out_idle_check_does_not_request_or_rerun(ui, monkeypatch):
+    """A removed fragment has no further work after server revocation clears state."""
+    api = Mock()
+    monkeypatch.setattr(auth, "request_api", api)
+    auth._verify_idle_session()
+    api.assert_not_called()
+    ui.rerun.assert_not_called()
+
+
 def test_login_stores_token_identity_and_expiry_but_not_password(ui, monkeypatch):
     """Successful login clears any previous report and password widget values."""
     ui.form_submit_button.return_value = True
