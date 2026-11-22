@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
             "The API supports creating, reviewing, and approving DAP session notes "
             "for school social work."
         ),
-        version="1.1.0",
+        version="2.0.0",
         lifespan=lifespan,
     )
     # Resolve relative database paths against the process working directory.
