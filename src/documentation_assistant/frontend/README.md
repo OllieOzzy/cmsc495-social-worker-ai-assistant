@@ -341,6 +341,17 @@ Display-only edits keep sessions active and appear on the next session check.
 Names must satisfy the existing account rules; usernames must be unique.
 Report ownership, saved reports, and historical approver names are preserved.
 
+To change permissions, select the account and expand **Change role**. Choose
+**New role**, confirm the permission change and sign-out, then select **Save
+role**. An admin can view every report and approve or reopen reports; regular
+users see their own reports. Changing roles signs out every affected session.
+The user must sign in again to use the new permissions. Saving the current
+role keeps sessions active.
+
+The last active admin cannot be demoted. You may demote your own account if
+another active admin exists; this returns you to login. Promoting an inactive
+account leaves it inactive. Reports, ownership, and prior approvals are preserved.
+
 ### Service Status
 
 Streamlit checks FastAPI and Ollama when the report page opens and every
@@ -400,6 +411,7 @@ responses are mocked, so both suites run without a model download.
 | Role controls and expiry | Only admins see approval/reopening controls, other owners' reports are read-only for admins, and expired or revoked sessions return to login. |
 | User management | Admin GUI creation, immediate new-user login, activation changes, session revocation, reactivation, and disabled self-deactivation controls. |
 | Account renaming | New-name login, preserved report ownership, display-only changes without logout, and admin self-rename returning to login. |
+| Account roles | Promotion and demotion with new-login permissions, session revocation, last-admin protection, and self-demotion returning to login. |
 | Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
 | Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |
 | Draft recovery | Retry opens the saved report after a failed fetch without generating a duplicate. |

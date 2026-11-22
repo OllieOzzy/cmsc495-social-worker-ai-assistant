@@ -7,6 +7,13 @@ such as `1.0.0` and `1.1.0`, without a `v` prefix.
 
 ### Added
 
+- Admin-only role changes in Manage users and `PATCH /users/{user_id}/role`.
+  Actual changes revoke all sessions and require a new login. Atomic checks
+  protect the last active admin across concurrent demotions and deactivations.
+  Reports and approval history are preserved, and inactive accounts stay inactive.
+- Login persistence rechecks the verified role to prevent an in-flight login
+  from issuing a session after a concurrent role change.
+
 - Local user accounts with regular-user and administrator roles, salted
   Argon2id password hashes, and terminal account-creation commands.
 - Explicit demo setup for `admin` and `user`; existing credentials and roles

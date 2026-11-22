@@ -106,6 +106,12 @@ username or display name. Username changes require confirmation and revoke
 all sessions; display-name changes keep sessions active. Account IDs, owned
 reports, and previously recorded approver names stay unchanged.
 
+In **Change role**, administrators can promote users or demote administrators.
+Confirm the permission change before saving. All affected sessions are signed
+out, and the user signs in again with the new role. The last active admin
+cannot be demoted, even during concurrent account changes. Inactive accounts
+remain inactive; reports and approval history are preserved.
+
 Account setup and the launcher must use the same working directory and
 `DAP_DB_PATH`. Accounts, session hashes, and reports share the SQLite file.
 Existing reports remain unassigned and are visible only to administrators
@@ -209,6 +215,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_frontend_password_change.py
     │   ├── 🧪 test_frontend_user_management.py
     │   ├── 🧪 test_frontend_user_rename.py
+    │   ├── 🧪 test_frontend_user_roles.py
     │   ├── 🧪 test_frontend_recovery.py
     │   ├── 🧪 test_frontend_reports.py
     │   ├── 🧪 test_health_api.py
@@ -220,6 +227,7 @@ and [frontend guide](src/documentation_assistant/frontend/README.md#accounts-and
     │   ├── 🧪 test_reports_api.py
     │   ├── 🧪 test_user_management_api.py
     │   ├── 🧪 test_user_profile_api.py
+    │   ├── 🧪 test_user_role_api.py
     │   └── 🧪 test_users_db.py
     ├── 📁 llm/
     │   ├── 🧪 test_dap_quality.py

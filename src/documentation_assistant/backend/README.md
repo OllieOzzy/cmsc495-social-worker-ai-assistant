@@ -341,6 +341,19 @@ are not accepted. Names use the same validation as account creation. Duplicate
 usernames return `409`, missing accounts return `404`, and invalid profiles
 return `422`. Failed updates preserve both names and sessions.
 
+`PATCH /users/{user_id}/role` accepts only `{"role": "user"}` or
+`{"role": "admin"}` and requires an administrator. An actual role change
+revokes all account sessions in the same transaction. A new login reads the
+new role; login persistence rejects credentials verified before a role change.
+Saving an unchanged role keeps sessions. Inactive accounts stay inactive.
+
+Demoting the last active administrator returns `409`; missing accounts return
+`404`, and invalid requests return `422`. The administrator count is checked
+under the same write lock as activation changes, protecting against simultaneous
+demotions and deactivations. Self-demotion is allowed if another active admin
+exists and requires signing in again. IDs, passwords, report ownership, and
+historical approval records are unchanged.
+
 Changing the normalized username revokes every session and clears the old and
 new username's login-attempt windows in the same transaction. Login and
 password-change persistence recheck the verified username under the write
@@ -389,6 +402,7 @@ caching sensitive report content. PDF downloads use the same protection.
 | `PATCH /users/{user_id}` | Administrator only: activates or deactivates an account. |
 | `POST /users/{user_id}/reset-password` | Administrator only: replaces a password and revokes all account sessions. |
 | `PATCH /users/{user_id}/profile` | Administrator only: updates username or display name while preserving identity and report ownership. |
+| `PATCH /users/{user_id}/role` | Administrator only: changes permissions, revokes sessions, and protects the last active admin. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
