@@ -161,6 +161,24 @@ def check_handwritten_report(client: httpx.Client) -> None:
     )
     assert recovered["user"]["user_id"] == saved["owner_id"]
     assert client.get(report_url, headers=headers).status_code == 401
+    changed_password = "Synthetic installed self-service password!"
+    recovered_headers = {"Authorization": f"Bearer {recovered['access_token']}"}
+    client.post(
+        f"{_BACKEND_URL}/auth/change-password",
+        json={"current_password": replacement, "new_password": changed_password},
+        headers=recovered_headers,
+    ).raise_for_status()
+    assert (
+        client.get(f"{_BACKEND_URL}/auth/me", headers=recovered_headers).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"{_BACKEND_URL}/auth/login",
+            json={"username": "user", "password": changed_password},
+        ).status_code
+        == 200
+    )
 
 
 def stop_launcher(process: subprocess.Popen) -> None:
@@ -226,7 +244,7 @@ def main() -> None:
         finally:
             stop_launcher(process)
     print(
-        "Installed dap-assistant verified login, ownership, admin approval, PDF export, logout, and password reset."
+        "Installed dap-assistant verified login, permissions, PDF export, logout, password reset, and password change."
     )
 
 
