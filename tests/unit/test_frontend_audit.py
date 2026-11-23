@@ -62,6 +62,18 @@ def test_history_renders_public_changes_and_local_attribution(ui, api):
     assert row["Changes"] == "role: user → admin"
 
 
+def test_authentication_attempt_has_no_fabricated_actor_or_account_id(ui, api):
+    """Unknown usernames display without claiming a local operation or account owner."""
+    api.return_value = [
+        {**EVENT, "action": "login_failed", "target_id": None, "changes": {}}
+    ]
+    audit.show_audit_history()
+    row = ui.dataframe.call_args.args[0][0]
+    assert row["Actor"] == "Authentication attempt"
+    assert row["Account ID"] == ""
+    assert row["Action"] == "login failed"
+
+
 @pytest.mark.parametrize("response", [None, []])
 def test_empty_and_failed_history_requests_remain_recoverable(ui, api, response):
     """A failed request does not render stale history; empty pages get a message."""
