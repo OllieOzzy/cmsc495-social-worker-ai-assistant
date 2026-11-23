@@ -201,7 +201,10 @@ def test_rejected_and_noop_changes_do_not_create_success_events(accounts):
         ).status_code
         == 403
     )
-    assert history(accounts) == before
+    events = history(accounts)
+    assert events[0]["action"] == "password_change_failed"
+    assert events[0]["changes"] == {}
+    assert events[1:] == before
 
 
 @pytest.mark.parametrize(

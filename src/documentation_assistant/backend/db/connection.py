@@ -135,17 +135,71 @@ def initialize_database(path: Path) -> None:
                 occurred_at TEXT NOT NULL,
                 actor_id TEXT,
                 actor_username TEXT,
-                target_id TEXT NOT NULL,
+                target_id TEXT,
                 target_username TEXT NOT NULL,
                 action TEXT NOT NULL CHECK(action IN (
                     'account_created', 'account_renamed', 'account_activated',
-                    'account_deactivated', 'role_changed', 'password_reset', 'password_changed'
+                    'account_deactivated', 'role_changed', 'password_reset', 'password_changed',
+                    'login_failed', 'login_throttled',
+                    'password_change_failed', 'password_change_throttled'
                 )),
                 changes TEXT NOT NULL
             )
         """)
+        _upgrade_audit_table(connection)
         connection.execute(
             "CREATE INDEX IF NOT EXISTS audit_events_target_id ON audit_events(target_id, event_id DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS audit_events_action_time ON audit_events(action, occurred_at)"
+        )
+
+
+def _upgrade_audit_table(connection: sqlite3.Connection) -> None:
+    """Preserve existing audit IDs and rows while allowing unknown login targets.
+
+    SQLite cannot alter a NOT NULL or CHECK constraint in place. Rebuild only
+    the older audit table, inside a writer transaction, without changing users,
+    sessions, reports, or historical values. Recheck after locking so concurrent
+    startup processes cannot both migrate the same table.
+    """
+    query = (
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'audit_events'"
+    )
+    if "'login_failed'" in connection.execute(query).fetchone()[0]:
+        return
+    if not connection.in_transaction:
+        connection.execute("BEGIN IMMEDIATE")
+    if "'login_failed'" in connection.execute(query).fetchone()[0]:
+        return
+    # Keep the original AUTOINCREMENT high-water mark even if history was pruned.
+    sequence = connection.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = 'audit_events'"
+    ).fetchone()
+    connection.execute("""
+        CREATE TABLE audit_events_upgrade (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurred_at TEXT NOT NULL,
+            actor_id TEXT,
+            actor_username TEXT,
+            target_id TEXT,
+            target_username TEXT NOT NULL,
+            action TEXT NOT NULL CHECK(action IN (
+                'account_created', 'account_renamed', 'account_activated',
+                'account_deactivated', 'role_changed', 'password_reset', 'password_changed',
+                'login_failed', 'login_throttled',
+                'password_change_failed', 'password_change_throttled'
+            )),
+            changes TEXT NOT NULL
+        )
+    """)
+    connection.execute("INSERT INTO audit_events_upgrade SELECT * FROM audit_events")
+    connection.execute("DROP TABLE audit_events")
+    connection.execute("ALTER TABLE audit_events_upgrade RENAME TO audit_events")
+    if sequence is not None:
+        connection.execute(
+            "UPDATE sqlite_sequence SET seq = ? WHERE name = 'audit_events'",
+            sequence,
         )
 
 

@@ -366,7 +366,8 @@ account leaves it inactive. Reports, ownership, and prior approvals are preserve
 
 ### Account Audit History
 
-In **Manage users**, turn on **Show audit history** to view account actions.
+In **Manage users**, turn on **Show audit history** to view account actions and
+authentication failures.
 The table shows newest actions first, with UTC time, actor and account IDs,
 username snapshots, action, and public before/after values. Names reflect the
 time of the action. CLI and other trusted local actions appear as **Local
@@ -378,9 +379,17 @@ account management. History is fetched only while this view is open.
 
 Creation, name changes, activation changes, role changes, password resets, and
 self-service password changes are recorded. Password values, hashes, tokens,
-and report content are excluded. Failed changes and unchanged name, role, or
-activation saves do not add entries. Earlier actions from before this feature
-was installed are not reconstructed. Only administrators can read this history.
+and report content are excluded. Rejected management changes and unchanged name,
+role, or activation saves do not add account-change entries. Earlier actions
+from before this feature was installed are not reconstructed. Only
+administrators can read this history.
+
+Failed logins, incorrect current passwords, and throttled attempts appear in
+the same table as **Authentication attempt**. The account column shows the
+submitted username; unknown usernames have a blank account ID. An attempt does
+not establish who submitted it. Authentication events are limited to the last
+30 days and at most 10,000 entries. Older failures are removed when the next
+failure is recorded; account-change history is retained.
 
 ### Service Status
 
@@ -446,7 +455,7 @@ responses are mocked, so both suites run without a model download.
 | Account renaming | New-name login, preserved report ownership, display-only changes without logout, and admin self-rename returning to login. |
 | Account roles | Promotion and demotion with new-login permissions, session revocation, last-admin protection, and self-demotion returning to login. |
 | Account search | Name matching beyond the first page, reset pagination and selection, no matches, and clearing the query. |
-| Audit history | Authenticated actor attribution, public changes without credentials, refreshing history, and returning to account management. |
+| Audit history | Authenticated actor attribution, public changes without credentials, unknown authentication targets without fabricated actors, refreshing history, and returning to account management. |
 | Idle session validity | The idle callback detects logout, deactivation, password reset, renaming, and role changes, clearing cached report/PDF state without a report action. |
 | Password reset | Confirmed replacement passwords, revoked user sessions, successful login with the new password, and admin self-reset returning to login. |
 | Password change | Current-password rejection without logout, regular/admin self-service changes, cleared private state, login with the new password, and preserved saved reports. |

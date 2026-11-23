@@ -145,6 +145,14 @@ History uses a separate `audit_events` table in the same database and is saved
 with each account change. CLI actions are labeled **Local operation**. Existing
 databases gain the table at startup; earlier actions are not reconstructed.
 
+The same history includes failed logins, incorrect current passwords, and
+throttled attempts. These show **Authentication attempt** and the submitted
+username; unknown usernames have no account ID. An attempt does not identify
+who made it. Authentication events are limited to the last 30 days and at most
+10,000 entries. Older failures are removed on the next failure; account-change
+history is retained. Startup upgrades existing audit tables while preserving
+their records and event IDs.
+
 Existing reports remain unassigned and are visible only to administrators
 through authenticated routes until explicitly assigned. Approved reports
 cannot be edited or deleted until an administrator reopens them.

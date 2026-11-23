@@ -10,7 +10,17 @@ from documentation_assistant.backend.auth import service
 from documentation_assistant.backend.schemas.auth import UserAccount
 
 
-def test_unknown_account_still_verifies_against_dummy_hash(monkeypatch, tmp_path):
+@pytest.fixture(autouse=True)
+def authentication_events(monkeypatch):
+    """Keep service tests independent of SQLite while checking recorded fields."""
+    recorder = Mock()
+    monkeypatch.setattr(service, "record_authentication_event", recorder)
+    return recorder
+
+
+def test_unknown_account_still_verifies_against_dummy_hash(
+    monkeypatch, tmp_path, authentication_events
+):
     """Missing usernames must not skip the expensive password verification step."""
     monkeypatch.setattr(service, "reserve_login_attempt", Mock(return_value=0))
     monkeypatch.setattr(service, "get_user_by_username", Mock(return_value=None))
@@ -19,9 +29,14 @@ def test_unknown_account_still_verifies_against_dummy_hash(monkeypatch, tmp_path
     with pytest.raises(service.InvalidCredentials):
         service.login(tmp_path / "unused.db", " Unknown ", "password")
     verify.assert_called_once_with("password", service._DUMMY_HASH)
+    authentication_events.assert_called_once_with(
+        tmp_path / "unused.db", "unknown", "login_failed"
+    )
 
 
-def test_throttle_prevents_password_work_and_session_creation(monkeypatch, tmp_path):
+def test_throttle_prevents_password_work_and_session_creation(
+    monkeypatch, tmp_path, authentication_events
+):
     """Do not verify credentials or issue tokens while the username is limited."""
     monkeypatch.setattr(service, "reserve_login_attempt", Mock(return_value=42))
     lookup = Mock()
@@ -33,6 +48,9 @@ def test_throttle_prevents_password_work_and_session_creation(monkeypatch, tmp_p
     assert error.value.retry_after == 42
     lookup.assert_not_called()
     save.assert_not_called()
+    authentication_events.assert_called_once_with(
+        tmp_path / "unused.db", "user", "login_throttled"
+    )
 
 
 @pytest.mark.parametrize("token", ["", "short", "a" * 42, "a" * 44])

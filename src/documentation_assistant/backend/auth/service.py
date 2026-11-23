@@ -12,6 +12,7 @@ from documentation_assistant.backend.auth.passwords import (
     validate_new_password,
     verify_password,
 )
+from documentation_assistant.backend.db.audit import record_authentication_event
 from documentation_assistant.backend.db.sessions import (
     delete_session,
     get_session_user,
@@ -57,10 +58,12 @@ def login(path: Path, username: str, password: str) -> LoginResponse:
     username = username.strip().lower()
     now = int(time())
     if retry_after := reserve_login_attempt(path, username, now):
+        record_authentication_event(path, username, "login_throttled")
         raise LoginThrottled(retry_after)
     account = get_user_by_username(path, username)
     valid = verify_password(password, account.password_hash if account else _DUMMY_HASH)
     if not valid or account is None or not account.is_active:
+        record_authentication_event(path, username, "login_failed")
         raise InvalidCredentials("Invalid username or password.")
     token = secrets.token_urlsafe(32)
     # Start the lifetime after password verification has completed.
@@ -76,6 +79,7 @@ def login(path: Path, username: str, password: str) -> LoginResponse:
         verified_username=account.username,
         verified_role=account.role,
     ):
+        record_authentication_event(path, username, "login_failed")
         raise InvalidCredentials("Invalid username or password.")
     return LoginResponse(
         access_token=token,
@@ -123,8 +127,10 @@ def change_password(
     ):
         raise InvalidCredentials("Invalid or expired session.")
     if retry_after := reserve_login_attempt(path, account.username, int(time())):
+        record_authentication_event(path, account.username, "password_change_throttled")
         raise LoginThrottled(retry_after)
     if not verify_password(current_password, account.password_hash):
+        record_authentication_event(path, account.username, "password_change_failed")
         raise IncorrectCurrentPassword("Current password is incorrect.")
     if (
         reset_user_password(
