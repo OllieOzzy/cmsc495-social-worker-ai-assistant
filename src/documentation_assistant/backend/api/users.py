@@ -62,7 +62,7 @@ def read_audit_history(
     offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
     target_id: UUID | None = None,
 ) -> list[AuditEvent]:
-    """Read committed account actions without exposing credentials or report content."""
+    """Read account actions and recent authentication failures without secret values."""
     response.headers["Cache-Control"] = "no-store"
     return list_audit_events(
         request.app.state.database_path,

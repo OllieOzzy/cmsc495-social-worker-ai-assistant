@@ -41,3 +41,13 @@ def test_audit_storage_rejects_unbounded_pages(limit, offset):
     """Validate pagination before opening a database connection."""
     with pytest.raises(ValueError, match="page bounds"):
         audit.list_audit_events(Path("does-not-exist.db"), limit=limit, offset=offset)
+
+
+@pytest.mark.parametrize(
+    "username, action",
+    [("bad\nname", "login_failed"), ("user", "arbitrary secret message")],
+)
+def test_authentication_recorder_rejects_arbitrary_log_fields(username, action):
+    """Validate the bounded username and action allowlist before opening SQLite."""
+    with pytest.raises(ValidationError):
+        audit.record_authentication_event(Path("does-not-exist.db"), username, action)
