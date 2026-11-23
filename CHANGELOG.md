@@ -20,6 +20,12 @@ This major release introduces authentication and account-based access.
 
 ### Added
 
+- Authentication failure history in the existing administrator audit view:
+  failed and throttled logins and current-password attempts, including unknown
+  usernames, without credential values or report content. Authentication entries
+  are limited to 30 days and 10,000 events while retaining account-change history.
+- Transactional upgrade of earlier audit-table constraints, preserving existing
+  records and event IDs while allowing unknown authentication targets.
 - Read-only administrator account audit history in Manage users and
   `GET /users/audit-events`, with bounded newest-first pages and optional
   target-account filtering in the API.

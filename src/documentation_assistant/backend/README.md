@@ -344,7 +344,8 @@ Administrators can use Streamlit's **Manage users** screen or these endpoints:
 
 ### Account Audit History
 
-`GET /users/audit-events?limit=25&offset=0` returns committed account actions,
+`GET /users/audit-events?limit=25&offset=0` returns committed account actions
+and recent authentication failures,
 newest first by event ID. It requires an administrator and uses
 `Cache-Control: no-store`. Pages allow 1–100 entries; optional `target_id`
 filters by a stable account UUID before pagination. No edit or delete operation
@@ -363,14 +364,32 @@ Only username, display name, role, and activation can appear in `changes`.
 Password actions have empty changes; no passwords, hashes, session tokens,
 source notes, or DAP text are recorded.
 
+The same table records `login_failed`, `login_throttled`,
+`password_change_failed`, and `password_change_throttled`. Authentication events
+have empty `changes`, no attributed actor, and the normalized submitted username.
+If that username exists at the time of recording, its account ID is saved;
+otherwise `target_id` is null. These events do not prove who made the attempt.
+Known and unknown usernames still receive the same generic login errors.
+
+Authentication history is limited to the last 30 days and at most 10,000 entries
+across the four failure types. Each new failure atomically prunes expired and
+excess authentication events; account-change history is preserved. Reads hide
+expired failures before pagination even when no new failure triggers cleanup.
+The action/time index supports expiry cleanup. Logging failures propagate
+without issuing a session; the existing reserved throttle attempt remains counted.
+
 The authenticated actor ID comes from the backend dependency, never the request
 body. CLI and trusted local storage operations have no signed-in actor and
 are labeled local operations. Account changes, session revocation, and audit
 insertion commit together: an audit failure rolls back the account mutation.
-Rejected changes and no-op name, role, or activation updates add no event.
+Rejected management changes and no-op name, role, or activation updates add no
+account-change event. Incorrect current-password and throttled authentication
+attempts produce the failure events described above.
 
 Startup adds the table to existing databases and preserves existing records;
-it does not reconstruct earlier actions. History is read-only through the app,
+older audit constraints are upgraded transactionally, preserving rows, event IDs,
+and the next event sequence. It does not reconstruct earlier actions. History is
+read-only through the app,
 but it is not tamper-proof against someone who can edit the SQLite file.
 
 ### Password Recovery and Account Changes
@@ -465,7 +484,7 @@ caching sensitive report content. PDF downloads use the same protection.
 | `POST /users/{user_id}/reset-password` | Administrator only: replaces a password and revokes all account sessions. |
 | `PATCH /users/{user_id}/profile` | Administrator only: updates username or display name while preserving identity and report ownership. |
 | `PATCH /users/{user_id}/role` | Administrator only: changes permissions, revokes sessions, and protects the last active admin. |
-| `GET /users/audit-events` | Administrator only: reads paginated account history, optionally filtered by target ID. |
+| `GET /users/audit-events` | Administrator only: reads account actions and recent authentication failures, optionally filtered by target ID. |
 | `POST /reports/generate` | Generates and saves an unapproved DAP draft from synthetic notes. |
 | `POST /reports/manual` | Opens a draft with blank DAP sections and optional source notes. |
 | `GET /reports` | Lists and filters saved report summaries, newest saved first. |
@@ -664,6 +683,7 @@ python -m pytest tests/integration -k "not frontend" -v
 | Integration: account renaming | Validation, duplicate/conflicting names, stable ownership, historical approval names and PDFs, token revocation, display-only edits, rollback, and concurrent auth protection. |
 | Integration: account roles and search | Admin-only promotion/demotion, session revocation, concurrent last-admin protection, literal Unicode name matching, and filtering before pagination. |
 | Integration: account audit | Actor attribution, username snapshots, credential privacy, read-only admin access, bounded filtered history, and rollback of account/session changes if an audit insert fails. |
+| Integration: authentication audit | Failed and throttled logins for known and unknown usernames, current-password failures, admin-only visibility, retention before pagination, count limits, preserved account history, and upgrades of older audit constraints. |
 | Integration: query plans and indexes | Authentication cleanup uses its indexes, startup adds missing indexes without changing records, and target-filtered audit history uses its index without extra sorting. |
 | Integration: password reset | Admin access, validation, session revocation, self-reset, preserved reports, atomic rollback, throttle recovery, and in-flight login protection. |
 | Integration: password change | Current-password verification, owner-only targeting, all-session revocation, throttling, demo credentials, and protection against concurrent reset or deactivation. |
